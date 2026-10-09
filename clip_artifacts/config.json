@@ -1,0 +1,13 @@
+{
+  "clip_model": "openai/clip-vit-base-patch32",
+  "feature_order": [
+    "image_embedding",
+    "text_embedding"
+  ],
+  "embedding_dim": 512,
+  "feature_dim": 1024,
+  "label_mapping": {
+    "0": "Real",
+    "1": "Fake"
+  }
+}

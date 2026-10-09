@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
 export const analyzeInputSchema = z.object({
-  imageUrl: z.string().url(),
-  claim: z.string().min(1).max(500),
-  language: z.enum(['auto', 'en', 'hi', 'ur', 'zh']),
+  imageUrl: z.string().min(1),
+  claim: z.string().min(1).max(2500),
+  language: z.enum(['auto', 'en', 'hi', 'ur', 'zh']).default('auto'),
+  type: z.enum(['text', 'pdf', 'image-text']).optional(),
 });
 
 export type AnalyzeInput = z.infer<typeof analyzeInputSchema>;

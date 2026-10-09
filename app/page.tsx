@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { VerdictBadge } from '@/components/verdict-badge';
-import { ScanSearch, Search, BarChart3, Upload, FileText, CheckSquare, Zap, Globe, ShieldCheck } from 'lucide-react';
+import { ScanSearch, Search, BarChart3, FileText, CheckSquare, Zap, ShieldCheck, Type, ImageIcon } from 'lucide-react';
 
 export default function HomePage() {
   return (
@@ -23,8 +23,8 @@ export default function HomePage() {
               with AI
             </h1>
             <p className="mb-8 text-lg text-muted-foreground sm:text-xl">
-              Upload any image, enter a claim, and VeriLens will cross-reference it against real-world evidence using
-              multimodal AI — returning a confidence-backed verdict in seconds.
+              Analyze plain text, PDF documents, or images with claims — VeriLens cross-references your content against
+              real-world evidence using multimodal AI and returns a confidence-backed verdict in seconds.
             </p>
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Button asChild size="lg" className="gap-2 text-base">
@@ -102,19 +102,19 @@ export default function HomePage() {
       <section className="bg-muted/30 py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="mb-12 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">Three Steps to the Truth</h2>
+            <h2 className="text-3xl font-bold tracking-tight">Three Ways to Detect Misinformation</h2>
+            <p className="mt-3 text-muted-foreground">Pick the mode that matches your content — VeriLens handles the rest</p>
           </div>
           <div className="grid gap-8 md:grid-cols-3">
             {[
-              { step: '01', icon: Upload, title: 'Upload Image', desc: 'Paste an image URL or upload directly from your device (up to 4MB).' },
-              { step: '02', icon: FileText, title: 'Enter Claim', desc: 'Type the claim associated with the image — the text being verified.' },
-              { step: '03', icon: CheckSquare, title: 'Get Verdict', desc: 'Receive True, False, Misleading, or Unverifiable with full evidence breakdown.' },
+              { step: '01', icon: Type, title: 'Text Analysis', desc: 'Paste any news article, tweet, or social media post. VeriLens scans for false claims and cross-references evidence sources automatically.' },
+              { step: '02', icon: FileText, title: 'PDF Analysis', desc: 'Upload a PDF report or link to a document online. The system extracts text, identifies key claims, and checks them against trusted sources.' },
+              { step: '03', icon: ImageIcon, title: 'Image + Text', desc: 'Provide an image and the claim made about it. The multimodal AI checks consistency between the image and the claim, then retrieves supporting evidence.' },
             ].map(({ step, icon: Icon, title, desc }) => (
-              <div key={step} className="relative flex flex-col items-center text-center">
+              <div key={step} className="flex flex-col items-center text-center">
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
                   <Icon className="h-8 w-8" />
                 </div>
-                <span className="absolute -top-2 right-1/2 translate-x-16 text-5xl font-black text-muted/50 select-none">{step}</span>
                 <h3 className="mb-2 text-xl font-semibold">{title}</h3>
                 <p className="text-muted-foreground">{desc}</p>
               </div>
@@ -144,11 +144,11 @@ export default function HomePage() {
         <div className="mx-auto max-w-2xl px-4 text-center">
           <ShieldCheck className="mx-auto mb-4 h-12 w-12 text-primary" />
           <h2 className="mb-4 text-3xl font-bold">Ready to Verify?</h2>
-          <p className="mb-6 text-muted-foreground">Fight misinformation with AI. Every analysis is stored in your history for later reference.</p>
+          <p className="mb-6 text-muted-foreground">Fight misinformation with AI. Analyze text, PDFs, or images — every analysis is stored in your history for later reference.</p>
           <Button asChild size="lg" className="gap-2">
             <Link href="/analyze">
               <ScanSearch className="h-5 w-5" />
-              Analyze an Image
+              Start Analyzing
             </Link>
           </Button>
         </div>

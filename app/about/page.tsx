@@ -1,15 +1,33 @@
 import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ScanSearch, Database, Server, Layers, ShieldCheck, Users } from 'lucide-react';
+import { ScanSearch, Database, Server, Layers, ShieldCheck, Users, Type, FileText, ImageIcon } from 'lucide-react';
 
 const stack = [
   { icon: Layers, name: 'Next.js 13', desc: 'React framework with App Router, server components, and API routes.' },
   { icon: Database, name: 'Neon + Drizzle ORM', desc: 'Serverless Postgres with type-safe schema and migrations.' },
-  { icon: Server, name: 'UploadThing', desc: 'Managed file uploads with CDN hosting for user images.' },
+  { icon: Server, name: 'UploadThing', desc: 'Managed file uploads with CDN hosting for user images and documents.' },
   { icon: ShieldCheck, name: 'OpenAI CLIP', desc: 'ViT-B/32 multimodal model for image-text consistency scoring.' },
   { icon: Layers, name: 'Zod + React Hook Form', desc: 'End-to-end type-safe validation on client and server.' },
   { icon: Layers, name: 'shadcn/ui + Tailwind CSS', desc: 'Accessible, themeable UI components with a custom design system.' },
+];
+
+const modes = [
+  {
+    icon: Type,
+    name: 'Text Analysis',
+    desc: 'Paste any news article, social media post, or written claim. VeriLens extracts key assertions and cross-references them against trusted fact-checking databases.',
+  },
+  {
+    icon: FileText,
+    name: 'PDF Analysis',
+    desc: 'Upload a PDF report or link to a document. The system parses the text, identifies potentially false claims, and returns evidence-backed verdicts for each.',
+  },
+  {
+    icon: ImageIcon,
+    name: 'Image + Text',
+    desc: 'Provide an image alongside the claim made about it. Our multimodal AI (CLIP) measures image-text consistency, then retrieves corroborating or refuting evidence.',
+  },
 ];
 
 export default function AboutPage() {
@@ -22,7 +40,7 @@ export default function AboutPage() {
         </div>
         <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">About VeriLens</h1>
         <p className="mt-4 text-muted-foreground">
-          A BTech CSE Major Project on multimodal fake-news detection.
+          A BTech CSE Major Project on multimodal fake-news detection — supporting text, PDF, and image analysis.
         </p>
       </div>
 
@@ -31,12 +49,31 @@ export default function AboutPage() {
         <CardContent className="pt-6">
           <h2 className="mb-3 text-xl font-semibold">Mission</h2>
           <p className="text-muted-foreground">
-            Misinformation spread through images is one of the defining challenges of the digital age. VeriLens
-            addresses this by combining vision-language AI (CLIP) with automated evidence retrieval to produce
-            verifiable, confidence-backed fact-checks in under five seconds — accessible to anyone with a browser.
+            Misinformation spreads across every format — viral images, misleading articles, and manipulated documents.
+            VeriLens addresses this by combining vision-language AI (CLIP) with automated evidence retrieval to produce
+            verifiable, confidence-backed fact-checks in under five seconds. Whether the content is plain text, a PDF
+            report, or an image paired with a claim, VeriLens is accessible to anyone with a browser.
           </p>
         </CardContent>
       </Card>
+
+      {/* Three Analysis Modes */}
+      <div className="mb-8">
+        <h2 className="mb-4 text-xl font-semibold">Three Analysis Modes</h2>
+        <div className="grid gap-4 sm:grid-cols-3">
+          {modes.map(({ icon: Icon, name, desc }) => (
+            <Card key={name} className="border-border/60 transition-shadow hover:shadow-md">
+              <CardContent className="pt-6">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+                  <Icon className="h-6 w-6 text-primary" />
+                </div>
+                <h3 className="mb-2 font-semibold text-sm">{name}</h3>
+                <p className="text-xs text-muted-foreground">{desc}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
 
       {/* Tech Stack */}
       <div className="mb-8">
@@ -60,7 +97,7 @@ export default function AboutPage() {
       <Card className="mb-8">
         <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Team</CardTitle></CardHeader>
         <CardContent>
-          <p className="text-muted-foreground">Built by BTech Computer Science &amp; Engineering students as a Major Project. The system integrates techniques from computer vision, natural language processing, and information retrieval.</p>
+          <p className="text-muted-foreground">Built by BTech Computer Science &amp; Engineering students as a Major Project. The system integrates techniques from computer vision, natural language processing, and information retrieval to tackle misinformation across text, PDF, and image modalities.</p>
         </CardContent>
       </Card>
 

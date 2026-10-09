@@ -83,8 +83,18 @@ export default function AnalysisPage() {
       <Card className="mb-6">
         <CardContent className="pt-6">
           <div className="flex flex-col items-center gap-6 sm:flex-row">
-            <div className="h-32 w-32 shrink-0 overflow-hidden rounded-xl border border-border">
-              <img src={analysis.imageUrl} alt="Analyzed" className="h-full w-full object-cover" />
+            <div className="h-32 w-32 shrink-0 overflow-hidden rounded-xl border border-border flex items-center justify-center bg-muted/40">
+              {analysis.imageUrl === 'text-only' ? (
+                <div className="flex flex-col items-center text-muted-foreground p-2 text-center">
+                  <span className="text-xs font-semibold">Text Analysis</span>
+                </div>
+              ) : analysis.imageUrl.endsWith('.pdf') || analysis.imageUrl.includes('pdf') ? (
+                <div className="flex flex-col items-center text-muted-foreground p-2 text-center">
+                  <span className="text-xs font-semibold">PDF Document</span>
+                </div>
+              ) : (
+                <img src={analysis.imageUrl} alt="Analyzed" className="h-full w-full object-cover" />
+              )}
             </div>
             <div className="flex-1 space-y-3">
               <VerdictBadge verdict={analysis.label} />
