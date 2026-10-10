@@ -82,9 +82,10 @@ def get_embeddings(image, text):
         txt_features = txt_features / txt_features.norm(dim=-1, keepdim=True)
         txt_emb = txt_features.cpu().numpy().flatten()
 
-    # Cosine similarity in [-1, 1], normalized to [0, 1]
+    # Cosine similarity in [-1, 1], calibrated to [0, 1] for CLIP ViT-B/32
     raw_sim = float(np.dot(img_emb, txt_emb))
-    clip_score = max(0.0, min(1.0, (raw_sim + 1.0) / 2.0))
+    # Standard CLIP ViT-B/32 dynamic range: unrelated ~ 0.12, strong match ~ 0.28+
+    clip_score = max(0.0, min(1.0, (raw_sim - 0.12) / 0.16))
 
     return img_emb, txt_emb, clip_score
 
@@ -92,55 +93,49 @@ def analyze(image_url: str, claim: str, language: str = "auto", input_type: str 
     start_time = time.time()
     clf = load_classifier()
 
-    try:
-        if input_type == "text" or image_url == "text-only":
-            from PIL import Image
-            img = Image.new("RGB", (224, 224), color=(200, 200, 200))
-        else:
-            img = fetch_image(image_url)
+    if input_type == "text" or image_url == "text-only" or not str(image_url).strip():
+        from PIL import Image
+        img = Image.new("RGB", (224, 224), color=(200, 200, 200))
+    else:
+        img = fetch_image(image_url)
 
-        img_emb, txt_emb, clip_score = get_embeddings(img, claim)
-        features = np.concatenate([img_emb, txt_emb]).reshape(1, -1)
-    except Exception as e:
-        sys.stderr.write(f"Warning: Fallback features used: {e}\n")
-        rng = np.random.RandomState(abs(hash(claim)) % (2**31))
-        img_emb = rng.randn(512)
-        img_emb /= np.linalg.norm(img_emb)
-        txt_emb = rng.randn(512)
-        txt_emb /= np.linalg.norm(txt_emb)
-        clip_score = 0.5 + float(np.dot(img_emb, txt_emb)) * 0.2
-        features = np.concatenate([img_emb, txt_emb]).reshape(1, -1)
+    img_emb, txt_emb, clip_score = get_embeddings(img, claim)
+    features = np.concatenate([img_emb, txt_emb]).reshape(1, -1)
 
     # Run trained logistic regression
     probs = clf.predict_proba(features)[0]
     p_real = float(probs[0])
     p_fake = float(probs[1]) if len(probs) > 1 else (1.0 - p_real)
 
-    if p_fake >= 0.58:
-        label = "False"
-        confidence = round(min(0.98, max(0.60, p_fake)), 2)
-        explanation = (
-            f"The trained CLIP classifier detected image-claim inconsistency with a fake probability of {p_fake:.0%}. "
-            f"Visual features and claim context show low correlation (CLIP score: {clip_score:.2f})."
-        )
-    elif p_real >= 0.58:
+    # Multimodal decision fusion:
+    # 1. High CLIP score (>= 0.65): Strong direct visual-text match (e.g. dogs playing in park) -> REAL
+    # 2. Moderate CLIP score (0.46 - 0.64): Partial overlap / potential out-of-context use -> MISLEADING
+    # 3. Low CLIP score (< 0.46): Contradiction or wrong entity/subject (e.g. cat vs dog, flood vs park) -> FAKE
+    if clip_score >= 0.65 and p_fake < 0.70:
         label = "True"
-        confidence = round(min(0.98, max(0.60, p_real)), 2)
+        confidence = round(max(0.70, min(0.96, clip_score * 0.7 + p_real * 0.3)), 2)
         explanation = (
-            f"The trained CLIP classifier verified correspondence between the image and claim with a real probability of {p_real:.0%}. "
-            f"Visual features align with the stated event (CLIP score: {clip_score:.2f})."
+            f"Visual features directly corroborate the stated claim with strong multimodal consistency (CLIP match: {clip_score:.0%}). "
+            f"The image content authenticates the core statement."
         )
-    elif abs(p_real - p_fake) < 0.15:
-        label = "Misleading"
-        confidence = round(max(0.50, max(p_real, p_fake)), 2)
+    elif clip_score < 0.46 or p_fake >= 0.72:
+        label = "False"
+        confidence = round(max(0.65, min(0.96, max(p_fake, 1.0 - clip_score))), 2)
         explanation = (
-            f"The image and claim exhibit partial semantic alignment (CLIP score: {clip_score:.2f}). "
-            f"The trained model signals borderline credibility ({p_real:.0%} real vs {p_fake:.0%} fake), indicating potential out-of-context usage."
+            f"Image-claim inconsistency detected (CLIP match: {clip_score:.0%}). "
+            f"The visual features contradict or do not depict the claimed subject/event."
+        )
+    elif 0.46 <= clip_score < 0.65:
+        label = "Misleading"
+        confidence = round(max(0.58, min(0.85, max(p_real, p_fake, clip_score))), 2)
+        explanation = (
+            f"The image and claim exhibit only partial or generic semantic alignment (CLIP match: {clip_score:.0%}). "
+            f"Borderline consistency indicates potential out-of-context media usage or loose captioning."
         )
     else:
         label = "Unverifiable"
-        confidence = 0.45
-        explanation = "The claim and image signals did not produce high-confidence evidence from the classifier."
+        confidence = 0.50
+        explanation = f"Multimodal signals are ambiguous (CLIP match: {clip_score:.0%}). Inconclusive evidence."
 
     latency_ms = int((time.time() - start_time) * 1000)
 
@@ -176,9 +171,25 @@ def analyze(image_url: str, claim: str, language: str = "auto", input_type: str 
     }
 
 if __name__ == "__main__":
-    # Support piping JSON via stdin to handle large base64 uploads without CLI length limits
-    if not sys.stdin.isatty():
-        try:
+    try:
+        if len(sys.argv) > 1:
+            parser = argparse.ArgumentParser(description="Run CLIP classifier inference")
+            parser.add_argument("--image", default="", help="Image URL, data URL, or file path")
+            parser.add_argument("--claim", default="", help="Claim to verify")
+            parser.add_argument("--language", default="auto", help="Language code")
+            parser.add_argument("--type", default="image-text", help="Type: text, pdf, image-text")
+            args = parser.parse_args()
+
+            if not args.claim:
+                sys.stderr.write("Error: --claim argument is required\n")
+                sys.exit(1)
+
+            result = analyze(args.image, args.claim, args.language, args.type)
+            print(json.dumps(result))
+            sys.exit(0)
+
+        # Support piping JSON via stdin to handle large base64 uploads without CLI length limits
+        if not sys.stdin.isatty():
             stdin_data = sys.stdin.read().strip()
             if stdin_data:
                 payload = json.loads(stdin_data)
@@ -186,19 +197,15 @@ if __name__ == "__main__":
                 clm = payload.get("claim", "")
                 lang = payload.get("language", "auto")
                 itype = payload.get("type", "image-text")
+                if not clm:
+                    sys.stderr.write("Error: 'claim' field is required in payload\n")
+                    sys.exit(1)
                 result = analyze(img, clm, lang, itype)
                 print(json.dumps(result))
                 sys.exit(0)
-        except Exception as e:
-            sys.stderr.write(f"Stdin JSON error: {e}\n")
 
-    parser = argparse.ArgumentParser(description="Run CLIP classifier inference")
-    parser.add_argument("--image", default="", help="Image URL, data URL, or file path")
-    parser.add_argument("--claim", default="", help="Claim to verify")
-    parser.add_argument("--language", default="auto", help="Language code")
-    parser.add_argument("--type", default="image-text", help="Type: text, pdf, image-text")
-
-    args = parser.parse_args()
-    if args.claim:
-        result = analyze(args.image, args.claim, args.language, args.type)
-        print(json.dumps(result))
+        sys.stderr.write("Error: No input provided via CLI arguments or stdin\n")
+        sys.exit(1)
+    except Exception as e:
+        sys.stderr.write(f"Inference error: {e}\n")
+        sys.exit(1)

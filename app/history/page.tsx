@@ -128,7 +128,17 @@ export default function HistoryPage() {
                     </p>
                   </Link>
                 </div>
-                <VerdictBadge verdict={record.label} />
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="hidden sm:flex flex-col items-end text-right">
+                    <span className="text-xs font-bold tabular-nums text-foreground">
+                      {Math.round(record.clipScore * 100)}%
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Similarity
+                    </span>
+                  </div>
+                  <VerdictBadge verdict={record.label} />
+                </div>
                 <Button
                   variant="ghost"
                   size="icon"

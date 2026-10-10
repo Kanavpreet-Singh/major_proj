@@ -122,7 +122,6 @@ export default function AnalyzePage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Analysis failed');
-      if (data.isMock) toast.info('Running in demo mode — mock analysis returned.');
       router.push(`/analysis/${data.id}`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Something went wrong');

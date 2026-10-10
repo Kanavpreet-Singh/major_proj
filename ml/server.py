@@ -1,7 +1,7 @@
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException, Header
-from fastapi.middleware.cors import CORSMSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from predict import analyze, load_classifier, load_clip
@@ -9,7 +9,7 @@ from predict import analyze, load_classifier, load_clip
 app = FastAPI(title="VeriLens ML Service", description="Multimodal Misinformation Verification with CLIP")
 
 app.add_middleware(
-    CORSMSMiddleware,
+    CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -51,4 +51,4 @@ def analyze_endpoint(payload: AnalyzeRequest, x_api_key: Optional[str] = Header(
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run("server:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run(app, host="0.0.0.0", port=port)

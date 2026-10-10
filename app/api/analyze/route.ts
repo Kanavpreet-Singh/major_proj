@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeInputSchema, mlResponseSchema, MLResponse } from '@/lib/validations';
 import { getOrCreateSessionId } from '@/lib/session';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { generateMockResult } from '@/lib/mock';
 import { db } from '@/lib/db/client';
 import { analyses } from '@/lib/db/schema';
 import { saveInMemory } from '@/lib/db/store';
@@ -99,12 +98,13 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const mlApiUrl = process.env.ML_API_URL;
+  const rawMlApiUrl = process.env.ML_API_URL;
+  const mlApiUrl = rawMlApiUrl ? rawMlApiUrl.replace('//localhost', '//127.0.0.1') : null;
   const mlApiKey = process.env.ML_API_KEY;
-  let isMock = false;
-  let result: MLResponse;
+  let result: MLResponse | null = null;
+  let modelError: Error | null = null;
 
-  // 1. If ML_API_URL is configured, try calling it
+  // 1. If ML_API_URL is configured, try calling it first (fast HTTP service)
   if (mlApiUrl) {
     try {
       const controller = new AbortController();
@@ -127,30 +127,39 @@ export async function POST(req: NextRequest) {
 
       clearTimeout(timeout);
 
-      if (!res.ok) throw new Error(`ML API returned ${res.status}`);
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`ML API service returned ${res.status}: ${errText}`);
+      }
       const raw = await res.json();
       result = mlResponseSchema.parse(raw);
-    } catch {
-      // Fallback to local python classifier
+    } catch (apiErr) {
+      console.warn('ML API service call failed, trying local Python classifier:', apiErr);
+      // Fallback to local python classifier execution
       try {
         result = await runLocalClassifier(imageUrl, claim, language, type || 'image-text');
-        isMock = false;
       } catch (localErr) {
-        console.error('Local classifier failed:', localErr);
-        isMock = true;
-        result = generateMockResult(claim, language);
+        console.error('Local classifier also failed:', localErr);
+        modelError = localErr instanceof Error ? localErr : new Error(String(localErr));
       }
     }
   } else {
     // 2. Direct execution of local python CLIP classifier
     try {
       result = await runLocalClassifier(imageUrl, claim, language, type || 'image-text');
-      isMock = false;
     } catch (localErr) {
       console.error('Local classifier failed:', localErr);
-      isMock = true;
-      result = generateMockResult(claim, language);
+      modelError = localErr instanceof Error ? localErr : new Error(String(localErr));
     }
+  }
+
+  // Never return mock data - if the model fails, surface an explicit error to the frontend
+  if (modelError || !result) {
+    const errorMsg = modelError?.message || 'ML model execution failed to return a result.';
+    return NextResponse.json(
+      { error: `ML Model Error: ${errorMsg}` },
+      { status: 502 }
+    );
   }
 
   const recordId = crypto.randomUUID();
@@ -172,7 +181,7 @@ export async function POST(req: NextRequest) {
     evidence: result.evidence,
     latencyMs: result.latencyMs,
     createdAt,
-    isMock,
+    isMock: false,
   });
 
   // Try DB if Neon PostgreSQL is configured
@@ -196,5 +205,5 @@ export async function POST(req: NextRequest) {
     // DB skipped, already saved in persistent store
   }
 
-  return NextResponse.json({ id: recordId, isMock });
+  return NextResponse.json({ id: recordId, isMock: false });
 }

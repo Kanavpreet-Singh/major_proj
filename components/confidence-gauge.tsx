@@ -5,11 +5,13 @@ import { cn } from '@/lib/utils';
 interface ConfidenceGaugeProps {
   value: number;
   label?: string;
+  sublabel?: string;
   size?: 'sm' | 'md' | 'lg';
+  colorOverride?: string;
 }
 
-export function ConfidenceGauge({ value, label, size = 'md' }: ConfidenceGaugeProps) {
-  const pct = Math.round(value * 100);
+export function ConfidenceGauge({ value, label, sublabel, size = 'md', colorOverride }: ConfidenceGaugeProps) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
   const dims = {
     sm: { box: 80, stroke: 6, text: 'text-base' },
     md: { box: 120, stroke: 8, text: 'text-2xl' },
@@ -21,9 +23,10 @@ export function ConfidenceGauge({ value, label, size = 'md' }: ConfidenceGaugePr
   const offset = circumference - (pct / 100) * circumference;
 
   const color =
-    pct >= 75 ? 'hsl(var(--success))' :
-    pct >= 50 ? 'hsl(var(--warning))' :
-    'hsl(var(--destructive))';
+    colorOverride ||
+    (pct >= 70 ? 'hsl(var(--success))' :
+    pct >= 45 ? 'hsl(var(--warning))' :
+    'hsl(var(--destructive))');
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -54,7 +57,8 @@ export function ConfidenceGauge({ value, label, size = 'md' }: ConfidenceGaugePr
           {pct}%
         </div>
       </div>
-      {label && <span className="text-sm text-muted-foreground">{label}</span>}
+      {label && <span className="text-sm font-medium text-foreground">{label}</span>}
+      {sublabel && <span className="text-xs text-muted-foreground">{sublabel}</span>}
     </div>
   );
 }
