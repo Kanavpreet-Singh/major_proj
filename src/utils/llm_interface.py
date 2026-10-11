@@ -109,42 +109,60 @@ class LLMInterface:
         """Initialize LLM provider clients"""
         llm_config = self.config.get('llm', {})
 
-        # Setup Ollama (free, primary)
-        if llm_config.get('primary_provider') == 'ollama':
-            self._setup_ollama()
+        # Setup Ollama (free, primary if available)
+        self._setup_ollama()
 
-        # Setup OpenAI (paid, fallback)
-        if llm_config.get('fallback_provider') == 'openai':
-            self._setup_openai()
+        # Setup Gemini
+        self._setup_gemini()
+
+        # Setup OpenAI
+        self._setup_openai()
+
+    def _setup_gemini(self):
+        """Initialize Google Gemini client"""
+        try:
+            import google.generativeai as genai
+            api_key = os.getenv("GEMINI_API_KEY") or self.config.get('llm', {}).get('gemini', {}).get('api_key')
+            if api_key and api_key.strip():
+                genai.configure(api_key=api_key.strip())
+                model_name = self.config.get('llm', {}).get('gemini', {}).get('model', 'gemini-1.5-flash')
+                self.gemini_client = genai.GenerativeModel(model_name)
+                logger.info(f"Google Gemini client initialized successfully ({model_name})")
+            else:
+                self.gemini_client = None
+        except Exception as e:
+            logger.warning(f"Failed to initialize Gemini: {e}")
+            self.gemini_client = None
 
     def _setup_ollama(self):
         """Initialize Ollama client"""
         try:
             import ollama
             self.ollama_client = ollama
-            logger.info("Ollama client initialized successfully")
+            logger.info("Ollama client initialized")
         except ImportError:
-            logger.warning("Ollama package not installed. Install with: pip install ollama")
+            logger.warning("Ollama package not installed")
+            self.ollama_client = None
         except Exception as e:
             logger.error(f"Failed to initialize Ollama: {e}")
+            self.ollama_client = None
 
     def _setup_openai(self):
         """Initialize OpenAI client"""
         try:
             from openai import OpenAI
-
-            api_key = self.config['llm']['openai'].get('api_key')
-            if api_key:
-                self.openai_client = OpenAI(api_key=api_key)
+            api_key = os.getenv("OPENAI_API_KEY") or self.config.get('llm', {}).get('openai', {}).get('api_key')
+            if api_key and api_key.strip():
+                self.openai_client = OpenAI(api_key=api_key.strip())
                 logger.info("OpenAI client initialized successfully")
             else:
-                logger.warning("OpenAI API key not provided")
+                self.openai_client = None
         except ImportError:
-            logger.warning("OpenAI package not installed. Install with: pip install openai")
+            self.openai_client = None
         except Exception as e:
             logger.error(f"Failed to initialize OpenAI: {e}")
+            self.openai_client = None
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def generate(
         self,
         prompt: str,
@@ -154,45 +172,54 @@ class LLMInterface:
     ) -> str:
         """
         Generate text using configured LLM with automatic fallback.
-
-        Args:
-            prompt: User prompt/query
-            temperature: Sampling temperature (0-1)
-            max_tokens: Maximum tokens to generate
-            provider: Force specific provider (None = auto)
-
-        Returns:
-            Generated text response
-
-        Raises:
-            Exception if all providers fail
         """
-        llm_config = self.config.get('llm', {})
-
-        # Determine provider order
+        # Determine candidate providers in order
+        providers = []
         if provider:
-            providers = [provider.value]
+            providers.append(provider.value)
         else:
-            providers = [llm_config.get('primary_provider', 'ollama')]
-            fallback = llm_config.get('fallback_provider')
-            if fallback:
-                providers.append(fallback)
+            if self.gemini_client:
+                providers.append('gemini')
+            if self.openai_client:
+                providers.append('openai')
+            if self.ollama_client:
+                providers.append('ollama')
 
-        # Try each provider in order
         last_error = None
         for prov_name in providers:
             try:
-                if prov_name == 'ollama' and self.ollama_client:
-                    return self._generate_ollama(prompt, max_tokens)
+                if prov_name == 'gemini' and self.gemini_client:
+                    return self._generate_gemini(prompt, temperature, max_tokens)
                 elif prov_name == 'openai' and self.openai_client:
-                    return self._generate_openai(prompt, max_tokens)
+                    return self._generate_openai(prompt, temperature, max_tokens)
+                elif prov_name == 'ollama' and self.ollama_client:
+                    return self._call_ollama(prompt, temperature, max_tokens)
             except Exception as e:
                 logger.warning(f"{prov_name} generation failed: {e}")
                 last_error = e
                 continue
 
-        # All providers failed
-        raise Exception(f"All LLM providers failed. Last error: {last_error}")
+        if last_error:
+            raise Exception(f"All LLM providers failed. Last error: {last_error}")
+        raise Exception("No active LLM providers configured or available.")
+
+    def _generate_gemini(
+        self,
+        prompt: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None
+    ) -> str:
+        """Generate text using Google Gemini"""
+        generation_config = {}
+        if temperature is not None:
+            generation_config["temperature"] = temperature
+        if max_tokens is not None:
+            generation_config["max_output_tokens"] = max_tokens
+        resp = self.gemini_client.generate_content(
+            prompt,
+            generation_config=generation_config if generation_config else None
+        )
+        return resp.text
 
     def _generate_ollama(
         self,
@@ -201,18 +228,30 @@ class LLMInterface:
         max_tokens: Optional[int] = None,
         role: str = 'user'
     ) -> str:
-        """Generate text using Ollama"""
-        ollama_config = self.config['llm']['ollama']
+        """Safe wrapper for backward compatibility with agents calling _generate_ollama"""
+        try:
+            return self.generate(prompt=prompt, temperature=temperature, max_tokens=max_tokens)
+        except Exception:
+            return self._call_ollama(prompt, temperature, max_tokens, role)
 
-        messages = [{'role':role, 'content': prompt}]
-
+    def _call_ollama(
+        self,
+        prompt: str,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        role: str = 'user'
+    ) -> str:
+        """Execute call to Ollama backend"""
+        if not self.ollama_client:
+            raise RuntimeError("Ollama client not available")
+        ollama_config = self.config.get('llm', {}).get('ollama', {})
+        messages = [{'role': role, 'content': prompt}]
         options = {
             'temperature': temperature or ollama_config.get('temperature', 0.3),
             'num_predict': max_tokens or ollama_config.get('max_tokens', 2048)
         }
-
         response = self.ollama_client.chat(
-            model=ollama_config['model'],
+            model=ollama_config.get('model', 'llama3.2:3b'),
             messages=messages,
             options=options
         )
@@ -226,16 +265,15 @@ class LLMInterface:
         role: str = 'user'
     ) -> str:
         """Generate text using OpenAI"""
-        openai_config = self.config['llm']['openai']
-
+        openai_config = self.config.get('llm', {}).get('openai', {})
         messages = [{'role': role, 'content': prompt}]
-
         response = self.openai_client.chat.completions.create(
-            model=openai_config['model'],
+            model=openai_config.get('model', 'gpt-4o-mini'),
             messages=messages,
             temperature=temperature or openai_config.get('temperature', 0.3),
             max_tokens=max_tokens or openai_config.get('max_tokens', 2048)
         )
+        return response.choices[0].message.content
 
         return response.choices[0].message.content
 

@@ -4,6 +4,12 @@ from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+import sys
+from pathlib import Path
+ML_DIR = Path(__file__).resolve().parent
+if str(ML_DIR) not in sys.path:
+    sys.path.insert(0, str(ML_DIR))
+
 from predict import analyze, load_classifier, load_clip
 
 app = FastAPI(title="VeriLens ML Service", description="Multimodal Misinformation Verification with CLIP")
@@ -18,7 +24,7 @@ app.add_middleware(
 
 class AnalyzeRequest(BaseModel):
     image_url: str
-    claim: str
+    claim: Optional[str] = ""
     language: Optional[str] = "auto"
     type: Optional[str] = "image-text"
 

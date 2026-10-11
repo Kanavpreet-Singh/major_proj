@@ -13,11 +13,32 @@ ARTIFACTS_DIR = Path(__file__).resolve().parent / "clip_artifacts"
 MODEL_PATH = ARTIFACTS_DIR / "classifier.joblib"
 CONFIG_PATH = ARTIFACTS_DIR / "config.json"
 
+# Ensure project root is in sys.path for importing src modules
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 # Lazy-loaded globals
 _classifier = None
 _clip_model = None
 _clip_processor = None
 _clip_device = "cpu"
+_orchestrator = None
+_pdf_extractor = None
+
+def get_orchestrator():
+    global _orchestrator
+    if _orchestrator is None:
+        from src.orchestrator import FactCheckingOrchestrator
+        _orchestrator = FactCheckingOrchestrator()
+    return _orchestrator
+
+def get_pdf_extractor():
+    global _pdf_extractor
+    if _pdf_extractor is None:
+        from src.utils.pdf_extractor import PDFExtractor
+        _pdf_extractor = PDFExtractor()
+    return _pdf_extractor
 
 def load_classifier():
     global _classifier
@@ -90,14 +111,45 @@ def get_embeddings(image, text):
     return img_emb, txt_emb, clip_score
 
 def analyze(image_url: str, claim: str, language: str = "auto", input_type: str = "image-text"):
+    # 1. TEXT-ONLY PATH: Route to Multi-Agent Fact Checking Orchestrator
+    if input_type == "text" or image_url == "text-only" or not str(image_url).strip():
+        orchestrator = get_orchestrator()
+        return orchestrator.verify_text(claim=claim, language=language)
+
+    # 2. PDF PATH: Extract text (with OCR fallback for scanned pages) and send to text-only path
+    is_pdf = (
+        input_type == "pdf"
+        or (isinstance(image_url, str) and (
+            image_url.startswith("data:application/pdf")
+            or image_url.lower().endswith(".pdf")
+            or ".pdf?" in image_url.lower()
+        ))
+    )
+    if is_pdf:
+        extractor = get_pdf_extractor()
+        pdf_res = extractor.extract_text(image_url)
+        extracted_claim = pdf_res.get("extracted_claim", "")
+        pages_count = pdf_res.get("pages_processed", 1)
+        ocr_used = pdf_res.get("ocr_used", False)
+
+        default_prompts = {"analyze this document for misinformation.", "verify this pdf", "analyze this document"}
+        if claim and claim.strip() and claim.strip().lower() not in default_prompts:
+            claim_to_verify = claim.strip()
+        else:
+            claim_to_verify = extracted_claim or claim.strip()
+
+        orchestrator = get_orchestrator()
+        result = orchestrator.verify_text(claim=claim_to_verify, language=language)
+
+        method_desc = "OCR extraction" if ocr_used else "digital text extraction"
+        prefix = f"[PDF Ingestion ({method_desc}, {pages_count} pages)] "
+        result["explanation"] = prefix + result.get("explanation", "")
+        return result
+
+    # 3. MULTIMODAL IMAGE + TEXT PATH: CLIP + Logistic Regression
     start_time = time.time()
     clf = load_classifier()
-
-    if input_type == "text" or image_url == "text-only" or not str(image_url).strip():
-        from PIL import Image
-        img = Image.new("RGB", (224, 224), color=(200, 200, 200))
-    else:
-        img = fetch_image(image_url)
+    img = fetch_image(image_url)
 
     img_emb, txt_emb, clip_score = get_embeddings(img, claim)
     features = np.concatenate([img_emb, txt_emb]).reshape(1, -1)
@@ -180,12 +232,12 @@ if __name__ == "__main__":
             parser.add_argument("--type", default="image-text", help="Type: text, pdf, image-text")
             args = parser.parse_args()
 
-            if not args.claim:
+            if not args.claim and args.type != "pdf":
                 sys.stderr.write("Error: --claim argument is required\n")
                 sys.exit(1)
 
             result = analyze(args.image, args.claim, args.language, args.type)
-            print(json.dumps(result))
+            print(json.dumps(result, ensure_ascii=True))
             sys.exit(0)
 
         # Support piping JSON via stdin to handle large base64 uploads without CLI length limits
@@ -197,11 +249,11 @@ if __name__ == "__main__":
                 clm = payload.get("claim", "")
                 lang = payload.get("language", "auto")
                 itype = payload.get("type", "image-text")
-                if not clm:
+                if not clm and itype != "pdf":
                     sys.stderr.write("Error: 'claim' field is required in payload\n")
                     sys.exit(1)
                 result = analyze(img, clm, lang, itype)
-                print(json.dumps(result))
+                print(json.dumps(result, ensure_ascii=True))
                 sys.exit(0)
 
         sys.stderr.write("Error: No input provided via CLI arguments or stdin\n")

@@ -61,15 +61,26 @@ class InputIngestionAgent:
         filtered_subclaims = []
 
         for idx, sc in enumerate(subclaims):
-            subclaim_text = sc.get('description', sc.get('predicate', ''))
+            if isinstance(sc, str):
+                subclaim_text = sc
+                predicate = f"Claim({sc})"
+            else:
+                desc = sc.get('description')
+                if isinstance(desc, list) and desc:
+                    desc = " ".join(desc)
+                elif not isinstance(desc, str):
+                    desc = None
+                subclaim_text = sc.get('text') or sc.get('subclaim') or desc or sc.get('predicate') or claim
+                predicate = sc.get('predicate') or f"Claim_{idx+1}"
+
             classification = self.parser.facts(subclaim_text)
             verifiability = classification.get('verifiability', 'VERIFIABLE')
 
             normalized = {
                 'text': subclaim_text,
-                'predicate': sc.get('predicate', ''),
+                'predicate': predicate,
                 'verifiability': verifiability,
-                'description': sc.get('description', []),
+                'description': subclaim_text,
             }
 
             if normalized['verifiability'] == "VERIFIABLE":

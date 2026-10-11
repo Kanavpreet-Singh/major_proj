@@ -105,13 +105,21 @@ class QueryGenerationAgent:
         Returns:
             List of query strings
         """
+        # Clean claim text for search
+        clean_text = re.sub(r'^Claim\((.*)\)$', r'\1', text or subclaim or '').strip()
+        if not clean_text:
+            clean_text = text or subclaim or 'claim'
+
         prompt_template = self.prompts.get('query_generation', '')
-        system_prompt = prompt_template.format(k=k, subclaim=subclaim)
-        response = self.llm._generate_ollama(
-            role="user",
-            prompt=system_prompt,
-        )
-        logger.info(f"LLM response for query generation: {response}")
+        system_prompt = prompt_template.format(k=k, subclaim=subclaim) if prompt_template else ""
+        response = None
+        if self.llm and system_prompt:
+            try:
+                response = self.llm.generate(prompt=system_prompt)
+                logger.info(f"LLM response for query generation: {response}")
+            except Exception as e:
+                logger.warning(f"LLM query generation failed, using heuristic queries: {e}")
+                response = None
 
         # Robust JSON extraction with fallback
         parsed = None
@@ -149,16 +157,20 @@ class QueryGenerationAgent:
                     except json.JSONDecodeError:
                         pass
 
-        if parsed is None:
-            logger.warning(f"Could not parse JSON from LLM response: {response}")
-            return []
-
+        queries = []
         if isinstance(parsed, list) and len(parsed) > 0:
             queries = parsed[0].get('questions', [])
         elif isinstance(parsed, dict):
             queries = parsed.get('questions', [])
-        else:
-            queries = []
+
+        # If LLM failed or returned no queries, use smart heuristic queries
+        if not queries:
+            queries = [
+                clean_text,
+                f"{clean_text} fact check",
+                f"Is {clean_text} true"
+            ]
+
         logger.debug(f"Generated queries: {queries}: subclaim")
-        return queries[:k]
+        return [q.strip() for q in queries if q and isinstance(q, str)][:k]
 

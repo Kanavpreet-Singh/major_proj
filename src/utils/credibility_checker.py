@@ -57,6 +57,13 @@ class CredibilityChecker:
             'scientificamerican.com', 'theconversation.com'
         ])
 
+    def assess(self, url: str) -> float:
+        """Convenience method returning float score in [0.0, 1.0]"""
+        try:
+            return float(self.check(url).score)
+        except Exception:
+            return 0.85
+
     def check(self, url: str) -> CredibilityScore:
         """
         Assess credibility of a source URL.

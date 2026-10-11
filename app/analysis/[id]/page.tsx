@@ -185,7 +185,13 @@ export default function AnalysisPage() {
               <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <span>Final Model Verdict</span>
                 <span className="text-muted-foreground/60">•</span>
-                <span className="font-medium lowercase text-muted-foreground">clip vi-t + lr</span>
+                <span className="font-medium lowercase text-muted-foreground">
+                  {analysis.imageUrl === 'text-only'
+                    ? 'multi-agent verification (6 agents)'
+                    : analysis.imageUrl.toLowerCase().includes('pdf')
+                    ? 'pdf ocr + multi-agent pipeline'
+                    : 'clip vi-t + lr'}
+                </span>
               </div>
               <h1 className={cn('text-2xl sm:text-3xl font-black tracking-tight', verdictThemes.titleColor)}>
                 {verdictThemes.title}

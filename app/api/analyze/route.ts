@@ -108,7 +108,7 @@ export async function POST(req: NextRequest) {
   if (mlApiUrl) {
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 45_000);
+      const timeout = setTimeout(() => controller.abort(), 90_000);
 
       const res = await fetch(`${mlApiUrl}/analyze`, {
         method: 'POST',

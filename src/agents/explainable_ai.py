@@ -124,13 +124,18 @@ class ExplainableAIAgent:
                 # 2. Passage length (relevance proxy)
                 # 3. Position in results (earlier = more important)
 
+                cred_score = getattr(evidence, 'credibility_score', 0.85)
+                cred_lvl = getattr(evidence, 'credibility_level', 'high')
+                ev_id = getattr(evidence, 'id', str(evidence.source_url))
+                passage_text = getattr(evidence, 'passage', '')
+
                 score = (
-                    0.5 * evidence.credibility_score +
-                    0.3 * min(len(evidence.passage) / 500, 1.0) +
-                    0.2 * (1.0 if evidence.credibility_level == 'high' else 0.5)
+                    0.5 * cred_score +
+                    0.3 * min(len(passage_text) / 500, 1.0) +
+                    0.2 * (1.0 if cred_lvl == 'high' else 0.5)
                 )
 
-                importance[evidence.id] = score
+                importance[ev_id] = score
 
         # Normalize to sum to 1.0
         total = sum(importance.values())
@@ -159,7 +164,7 @@ class ExplainableAIAgent:
         critical = []
         for er in evidence_results:
             for ev in er.evidence:
-                if ev.id in critical_ids:
+                if getattr(ev, 'id', str(ev.source_url)) in critical_ids:
                     critical.append(f"{ev.source_name}: \"{ev.passage[:100]}...\"")
 
         return critical
@@ -205,7 +210,7 @@ class ExplainableAIAgent:
         for er in evidence_results:
             # Check for credibility variance
             if er.evidence:
-                cred_levels = [ev.credibility_level for ev in er.evidence]
+                cred_levels = [getattr(ev, 'credibility_level', 'medium') for ev in er.evidence]
                 unique_levels = set(cred_levels)
 
                 if len(unique_levels) > 1:
