@@ -156,7 +156,82 @@ verdict_prediction: |
   It will be parsed using `json.loads()` in Python. Output strictly in this schema:
   {{
     "label": "<supported or not_supported>",
+    "confidence": <number between 0 and 1: how likely it is that your label is correct>,
     "explanation": "<A concise, evidence-based summary supporting your decision>"
+  }}
+
+debate_advocate: |
+  You are the {role_name} in a structured fact-checking debate. This is round {round}.
+  Your side: {stance_instruction}
+
+  Full claim being fact-checked:
+  {claim}
+
+  Subclaim under debate:
+  {subclaim}
+
+  Evidence (the ONLY material you may use):
+  {evidence}
+
+  Debate so far:
+  {transcript}
+
+  Rules:
+  1. Ground every factual statement in the evidence. For each one, cite the evidence ID and copy
+     a short quote WORD FOR WORD from that passage.
+  2. Do not use outside knowledge. Every quote is checked automatically against the evidence;
+     quotes that are not found are marked FABRICATED and the judge will ignore them.
+  3. In rounds after the first, directly answer your opponent's strongest point.
+  4. Pay close attention to details: dates, numbers, names, places and relationships.
+  5. If the evidence honestly does not help your side, say so and set "concede" to true.
+  6. Keep the argument under 120 words. Use single quotes instead of double quotes inside strings.
+
+  IMPORTANT: Your response must be valid JSON only, with no additional text, markdown, or explanation outside the JSON object.
+  It will be parsed using `json.loads()` in Python. Output strictly in this schema:
+  {{
+    "argument": "<your argument>",
+    "citations": [{{"id": "<evidence id such as E1>", "quote": "<exact words copied from that evidence>"}}],
+    "concede": <true or false>
+  }}
+
+debate_judge: |
+  You are an impartial Judge in a fact-checking debate. A Defender argued that the subclaim is
+  supported by the evidence, and a Prosecutor argued that it is refuted.
+
+  Full claim being fact-checked:
+  {claim}
+
+  Subclaim under debate:
+  {subclaim}
+
+  Evidence:
+  {evidence}
+
+  Debate transcript. Each citation was checked automatically against the evidence and is marked
+  VERIFIED or FABRICATED:
+  {transcript}
+
+  Instructions:
+  1. Decide from the evidence itself. The debate helps you notice details, but arguments do not
+     count unless the evidence backs them.
+  2. Ignore any point that relies on a FABRICATED citation.
+  3. Choose between three outcomes:
+     - supported: the evidence explicitly confirms the subclaim, including its details.
+     - refuted: the evidence explicitly contradicts the subclaim or one of its details.
+     - insufficient: the evidence is missing, off-topic, or does not settle the question.
+  4. Give a probability for each outcome. They must sum to 1. Be calibrated: put a value near
+     1.0 only when the evidence is explicit and unambiguous.
+  5. Use single quotes instead of double quotes inside strings.
+
+  IMPORTANT: Your response must be valid JSON only, with no additional text, markdown, or explanation outside the JSON object.
+  It will be parsed using `json.loads()` in Python. Output strictly in this schema:
+  {{
+    "p_supported": <number>,
+    "p_refuted": <number>,
+    "p_insufficient": <number>,
+    "winner": "<defender, prosecutor or tie>",
+    "decisive_evidence": ["<evidence ids that decided the outcome>"],
+    "reasoning": "<2-3 sentences explaining the decision, citing evidence ids>"
   }}
 
 explainable_ai: |

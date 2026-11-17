@@ -75,6 +75,9 @@ class MetricsCalculator:
         correct = 0
 
         for pred, truth in zip(predictions, ground_truths):
+            # Binary benchmarks (HoVer, FEVER-2way) fold "not enough info" into NOT_SUPPORTED.
+            if pred == "NOT_ENOUGH_INFO":
+                pred = "NOT_SUPPORTED"
             if pred == truth:
                 correct += 1
                 

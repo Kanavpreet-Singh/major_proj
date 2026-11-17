@@ -16,6 +16,10 @@ export const analyses = pgTable(
     explanation: text('explanation').notNull(),
     evidence: jsonb('evidence').notNull(),
     latencyMs: integer('latency_ms').notNull(),
+    // Multi-agent debate output (text / PDF analyses only)
+    verdictMode: text('verdict_mode'),
+    labelProbs: jsonb('label_probs'),
+    debate: jsonb('debate'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => ({

@@ -36,6 +36,14 @@ evidence_seeking:
 
 # Verdict Prediction Agent Settings
 verdict_prediction:
+  # "debate" = Prosecutor vs Defender + Judge; "single" = one LLM verdict (baseline)
+  mode: "debate"
+  debate:
+    rounds: 2               # opening + one rebuttal; LLM calls per subclaim = 2*rounds + 1
+    max_evidence: 8         # evidence passages shown to the debaters
+    max_passage_chars: 600
+    abstain_threshold: 0.5  # below this winning probability, the subclaim is "insufficient"
+
   # Weighted voting
   weights:
     high_credibility: 1.0

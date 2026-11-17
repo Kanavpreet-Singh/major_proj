@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { analyzeInputSchema, mlResponseSchema, MLResponse } from '@/lib/validations';
 import { getOrCreateSessionId } from '@/lib/session';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { db } from '@/lib/db/client';
-import { analyses } from '@/lib/db/schema';
-import { saveInMemory } from '@/lib/db/store';
+import { saveAnalysis } from '@/lib/db/repository';
 import { spawn } from 'child_process';
 import path from 'path';
 import crypto from 'crypto';
@@ -165,8 +163,7 @@ export async function POST(req: NextRequest) {
   const recordId = crypto.randomUUID();
   const createdAt = new Date().toISOString();
 
-  // Always save to persistent local store first to ensure 100% reliability
-  saveInMemory({
+  await saveAnalysis({
     id: recordId,
     sessionId,
     imageUrl,
@@ -182,28 +179,10 @@ export async function POST(req: NextRequest) {
     latencyMs: result.latencyMs,
     createdAt,
     isMock: false,
+    verdictMode: result.verdictMode,
+    labelProbs: result.labelProbs,
+    debate: result.debate ?? null,
   });
-
-  // Try DB if Neon PostgreSQL is configured
-  try {
-    await db.insert(analyses).values({
-      id: recordId,
-      sessionId,
-      imageUrl,
-      claim,
-      language: result.language,
-      label: result.label,
-      confidence: result.confidence,
-      clipScore: result.clipScore,
-      evidenceScore: result.evidenceScore,
-      credibilityScore: result.credibilityScore,
-      explanation: result.explanation,
-      evidence: result.evidence,
-      latencyMs: result.latencyMs,
-    });
-  } catch {
-    // DB skipped, already saved in persistent store
-  }
 
   return NextResponse.json({ id: recordId, isMock: false });
 }

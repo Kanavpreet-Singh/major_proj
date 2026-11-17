@@ -12,6 +12,13 @@ from pathlib import Path
 from loguru import logger
 from tenacity import retry, stop_after_attempt, wait_exponential
 import json
+import re
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # pick up GEMINI_API_KEY etc. from .env when run outside Next.js
+except ImportError:
+    pass
 
 
 class LLMProvider(Enum):
@@ -119,15 +126,20 @@ class LLMInterface:
         self._setup_openai()
 
     def _setup_gemini(self):
-        """Initialize Google Gemini client"""
+        """Initialize Google Gemini client (google-genai SDK)"""
         try:
-            import google.generativeai as genai
-            api_key = os.getenv("GEMINI_API_KEY") or self.config.get('llm', {}).get('gemini', {}).get('api_key')
-            if api_key and api_key.strip():
-                genai.configure(api_key=api_key.strip())
-                model_name = self.config.get('llm', {}).get('gemini', {}).get('model', 'gemini-1.5-flash')
-                self.gemini_client = genai.GenerativeModel(model_name)
-                logger.info(f"Google Gemini client initialized successfully ({model_name})")
+            from google import genai
+            from google.genai import types
+            gemini_cfg = self.config.get('llm', {}).get('gemini', {})
+            api_key = os.getenv("GEMINI_API_KEY") or gemini_cfg.get('api_key')
+            if api_key and api_key.strip() and not api_key.startswith('${'):
+                timeout_ms = int(gemini_cfg.get('timeout', 60)) * 1000
+                self.gemini_client = genai.Client(
+                    api_key=api_key.strip(),
+                    http_options=types.HttpOptions(timeout=timeout_ms),
+                )
+                self.gemini_model = gemini_cfg.get('model', 'gemini-2.5-flash')
+                logger.info(f"Google Gemini client initialized successfully ({self.gemini_model})")
             else:
                 self.gemini_client = None
         except Exception as e:
@@ -209,17 +221,30 @@ class LLMInterface:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None
     ) -> str:
-        """Generate text using Google Gemini"""
-        generation_config = {}
-        if temperature is not None:
-            generation_config["temperature"] = temperature
-        if max_tokens is not None:
-            generation_config["max_output_tokens"] = max_tokens
-        resp = self.gemini_client.generate_content(
-            prompt,
-            generation_config=generation_config if generation_config else None
+        """Generate text using Google Gemini, retrying on rate limits (429) and overload (503)."""
+        from google.genai import types, errors
+        gemini_cfg = self.config.get('llm', {}).get('gemini', {})
+        config = types.GenerateContentConfig(
+            temperature=temperature if temperature is not None else gemini_cfg.get('temperature', 0.2),
+            max_output_tokens=max_tokens,
         )
-        return resp.text
+        max_retries = int(gemini_cfg.get('max_retries', 5))
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self.gemini_client.models.generate_content(
+                    model=self.gemini_model, contents=prompt, config=config
+                )
+                if not resp.text:
+                    raise RuntimeError("Gemini returned an empty response")
+                return resp.text
+            except errors.APIError as e:
+                if e.code not in (429, 500, 503) or attempt == max_retries:
+                    raise
+                # Honour the server's suggested delay when it gives one
+                m = re.search(r"retry in ([\d.]+)s|'retryDelay': '(\d+)s'", str(e))
+                delay = float(next(g for g in m.groups() if g)) if m else min(60, 2 ** (attempt + 1))
+                logger.warning(f"Gemini {e.code}, retrying in {delay:.0f}s ({attempt + 1}/{max_retries})")
+                time.sleep(delay)
 
     def _generate_ollama(
         self,

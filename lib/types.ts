@@ -13,6 +13,52 @@ export interface EvidenceItem {
   stance: Stance;
 }
 
+export interface LabelProbs {
+  supported: number;
+  refuted: number;
+  insufficient: number;
+}
+
+export interface DebateCitation {
+  id: string;
+  quote: string;
+  verified: boolean;
+}
+
+export interface DebateArgument {
+  role: 'defender' | 'prosecutor';
+  round: number;
+  argument: string;
+  citations: DebateCitation[];
+  conceded: boolean;
+}
+
+export interface DebateEvidence {
+  id: string;
+  source_name: string;
+  source_url: string;
+  passage: string;
+  credibility: number;
+}
+
+export interface SubclaimDebate {
+  subclaim: string;
+  verdict: 'supported' | 'not_supported' | 'insufficient';
+  probs: LabelProbs;
+  abstained: boolean;
+  judge: {
+    p_supported: number;
+    p_refuted: number;
+    p_insufficient: number;
+    winner: 'defender' | 'prosecutor' | 'tie';
+    decisive_evidence: string[];
+    reasoning: string;
+  };
+  arguments: DebateArgument[];
+  evidence: DebateEvidence[];
+  grounding: { defender: number | null; prosecutor: number | null };
+}
+
 export interface AnalysisResult {
   label: Verdict;
   confidence: number;
@@ -42,4 +88,7 @@ export interface AnalysisRecord {
   latencyMs: number;
   createdAt: string;
   isMock?: boolean;
+  verdictMode?: string;
+  labelProbs?: LabelProbs;
+  debate?: SubclaimDebate[] | null;
 }

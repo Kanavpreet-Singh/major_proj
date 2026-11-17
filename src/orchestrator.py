@@ -184,7 +184,7 @@ class FactCheckingOrchestrator:
 
             # AGENT 4: Verdict Prediction
             logger.info("\n[4/6] Verdict Prediction Agent - Aggregating evidence...")
-            verdict_result = self.verdict_prediction.process(evidence_results)
+            verdict_result = self.verdict_prediction.process(evidence_results, claim=claim)
             results['verdict'] = self.verdict_prediction.to_dict(verdict_result)
             logger.info(f"✓ Verdict: {verdict_result.final_verdict})")
 
@@ -242,104 +242,96 @@ class FactCheckingOrchestrator:
         verdict_data = raw_res.get('verdict') or {}
         raw_final = str(verdict_data.get('final_verdict', '')).upper()
         subclaim_verdicts = verdict_data.get('subclaim_verdicts', [])
+        probs = verdict_data.get('label_probs') or {}
 
-        # Flatten retrieved evidence
+        # Flatten retrieved evidence. Stance comes from the debate: evidence cited
+        # (with a verified quote) only by the Defender supports, only by the Prosecutor refutes.
         evidence_list = []
-        raw_evidence_groups = raw_res.get('evidence', [])
-        for grp in raw_evidence_groups:
+        seen = set()
+        cred_values = []
+        for gi, grp in enumerate(raw_res.get('evidence', [])):
+            sv = subclaim_verdicts[gi] if gi < len(subclaim_verdicts) else {}
+            debate = sv.get('debate') or {}
+            stance_by_key = {
+                (e.get('source_url', ''), e.get('passage', '')[:100]): debate.get('evidence_stance', {}).get(e.get('id'), 'Neutral')
+                for e in debate.get('evidence', [])
+            }
             for ev in grp.get('evidence', []):
                 url = ev.get('source_url', '')
-                domain = urllib.parse.urlparse(url).netloc.replace('www.', '') if url else 'wikipedia.org'
-                title = ev.get('source_name') or domain or 'Verified Source'
-                snippet = ev.get('passage') or ''
+                snippet = (ev.get('passage') or '').strip()
+                if not snippet or not url.startswith(('http://', 'https://')):
+                    continue  # never show evidence we did not actually retrieve
+                key = (url, snippet[:100])
+                if key in seen:
+                    continue
+                seen.add(key)
 
-                # Check credibility
-                try:
-                    cred_score = self.evidence_seeking.credibility.assess(url)
-                    cred_str = 'High' if cred_score >= 0.8 else ('Medium' if cred_score >= 0.5 else 'Low')
-                except Exception:
-                    cred_str = 'High' if 'wikipedia.org' in url or '.edu' in url or '.gov' in url else 'Medium'
+                domain = urllib.parse.urlparse(url).netloc.replace('www.', '')
+                cred_score = float(ev.get('credibility_score') or 0.5)
+                cred_values.append(cred_score)
+                cred_str = 'High' if cred_score >= 0.8 else ('Medium' if cred_score >= 0.5 else 'Low')
+
+                if stance_by_key:
+                    stance = stance_by_key.get((url, snippet[:100]), 'Neutral')
+                else:
+                    stance = {'supported': 'Supports', 'not_supported': 'Refutes'}.get(sv.get('supports'), 'Neutral')
 
                 evidence_list.append({
-                    'title': title,
-                    'url': url if (url.startswith('http://') or url.startswith('https://')) else f'https://en.wikipedia.org/wiki/{title.replace(" ", "_")}',
-                    'domain': domain or 'wikipedia.org',
-                    'snippet': snippet[:300] if snippet else f'Analysis of factual statement regarding {claim[:60]}...',
+                    'title': ev.get('source_name') or domain,
+                    'url': url,
+                    'domain': domain,
+                    'snippet': snippet[:300],
                     'credibility': cred_str,
-                    'stance': 'Supports' if 'SUPPORT' in raw_final and 'NOT_SUPPORT' not in raw_final else ('Refutes' if 'NOT_SUPPORT' in raw_final else 'Neutral')
+                    'stance': stance,
                 })
 
-        # Ensure at least 1 valid evidence record
-        if not evidence_list:
-            first_word = claim.split()[0] if claim.split() else "Fact"
-            evidence_list.append({
-                'title': f'Knowledge Base: {first_word}',
-                'url': f'https://en.wikipedia.org/wiki/{first_word}',
-                'domain': 'wikipedia.org',
-                'snippet': f'Synthesized multi-agent verification for statement: "{claim[:80]}".',
-                'credibility': 'High',
-                'stance': 'Supports' if 'SUPPORT' in raw_final and 'NOT_SUPPORT' not in raw_final else 'Refutes'
-            })
+        # Label and confidence come from the verdict probabilities
+        p_s = float(probs.get('supported', 0.0))
+        p_r = float(probs.get('refuted', 0.0))
+        p_n = float(probs.get('insufficient', 0.0))
+        any_supported = any(sv.get('supports') == 'supported' for sv in subclaim_verdicts)
 
-        # Determine label and confidence
         if raw_final == 'SUPPORTED':
-            label = 'True'
-            confidence = 0.88
-            evidence_score = 0.90
-            clip_score = 0.85
+            label, confidence = 'True', p_s
         elif raw_final == 'NOT_SUPPORTED':
-            label = 'False'
-            confidence = 0.85
-            evidence_score = 0.20
-            clip_score = 0.25
-        elif raw_final == 'MISLEADING':
-            label = 'Misleading'
-            confidence = 0.70
-            evidence_score = 0.50
-            clip_score = 0.55
+            # Some subclaims hold but at least one detail is false -> partly true
+            label = 'Misleading' if any_supported and len(subclaim_verdicts) > 1 else 'False'
+            confidence = p_r
         else:
-            supported_count = sum(1 for sv in subclaim_verdicts if sv.get('supports') == 'supported')
-            total_sv = len(subclaim_verdicts)
-            if total_sv > 0 and supported_count == total_sv:
-                label = 'True'
-                confidence = 0.86
-                evidence_score = 0.88
-                clip_score = 0.84
-            elif total_sv > 0 and supported_count == 0:
-                label = 'False'
-                confidence = 0.82
-                evidence_score = 0.25
-                clip_score = 0.30
-            elif total_sv > 0:
-                label = 'Misleading'
-                confidence = 0.68
-                evidence_score = 0.50
-                clip_score = 0.55
-            else:
-                label = 'Unverifiable'
-                confidence = 0.50
-                evidence_score = 0.50
-                clip_score = 0.50
+            label, confidence = 'Unverifiable', p_n if probs else 0.5
 
-        # Explanation synthesis
-        expl = verdict_data.get('explanation')
-        if not expl or expl == "Explanation generation not implemented yet.":
-            subclaims_text = ", ".join(f"'{sv.get('claim', '')}'" for sv in subclaim_verdicts if sv.get('claim'))
-            if subclaims_text:
-                expl = f"Multi-agent verification completed across subclaims: {subclaims_text}. Verdict synthesized as {label} based on {len(evidence_list)} sources."
-            else:
-                expl = f"Multi-agent verification analyzed the statement and cross-referenced with {len(evidence_list)} factual sources. Verdict: {label}."
+        # Explanation: judge reasoning per subclaim
+        expl = verdict_data.get('explanation') or (
+            f"Multi-agent verification analyzed the statement against {len(evidence_list)} sources. Verdict: {label}."
+        )
+
+        debate_out = [
+            {
+                'subclaim': sv.get('subclaim', ''),
+                'verdict': sv.get('supports'),
+                'probs': {
+                    'supported': sv.get('p_supported', 0.0),
+                    'refuted': sv.get('p_refuted', 0.0),
+                    'insufficient': sv.get('p_insufficient', 0.0),
+                },
+                **{k: sv['debate'][k] for k in ('abstained', 'judge', 'arguments', 'evidence', 'grounding')},
+            }
+            for sv in subclaim_verdicts if sv.get('debate')
+        ]
 
         return {
             "label": label,
             "confidence": round(float(confidence), 2),
-            "clipScore": round(float(clip_score), 2),
-            "evidenceScore": round(float(evidence_score), 2),
-            "credibilityScore": 0.90,
+            "clipScore": 0.0,  # no image in text/PDF mode
+            "evidenceScore": round(p_s, 2),
+            "credibilityScore": round(sum(cred_values) / len(cred_values), 2) if cred_values else 0.0,
             "explanation": expl,
             "language": language if language != "auto" else "en",
             "latencyMs": latency_ms,
-            "evidence": evidence_list[:6],
+            "evidence": evidence_list[:8],
+            "verdictMode": verdict_data.get('mode', 'heuristic'),
+            "labelProbs": {'supported': round(p_s, 4), 'refuted': round(p_r, 4), 'insufficient': round(p_n, 4)},
+            "debate": debate_out or None,
         }
 
     def get_performance_analysis(self) -> Dict[str, Any]:

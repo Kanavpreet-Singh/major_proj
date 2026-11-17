@@ -191,24 +191,8 @@ def analyze(image_url: str, claim: str, language: str = "auto", input_type: str 
 
     latency_ms = int((time.time() - start_time) * 1000)
 
-    evidence = [
-        {
-            "title": "Reuters Fact Check Analysis",
-            "url": "https://www.reuters.com/fact-check",
-            "domain": "reuters.com",
-            "snippet": f"Cross-referencing claims regarding '{claim[:60]}...'. Verification pipeline completed with {confidence:.0%} confidence.",
-            "credibility": "High",
-            "stance": "Supports" if label == "True" else ("Refutes" if label == "False" else "Neutral"),
-        },
-        {
-            "title": "Associated Press Media Verification",
-            "url": "https://apnews.com",
-            "domain": "apnews.com",
-            "snippet": f"Associated Press visual verification analysis: Visual alignment score is {clip_score:.2f}.",
-            "credibility": "High",
-            "stance": "Supports" if label == "True" else ("Refutes" if label == "False" else "Neutral"),
-        },
-    ]
+    # Image mode runs no evidence retrieval, so it reports no evidence sources.
+    evidence = []
 
     return {
         "label": label,

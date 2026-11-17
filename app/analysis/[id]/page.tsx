@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { VerdictBadge } from '@/components/verdict-badge';
 import { ConfidenceGauge } from '@/components/confidence-gauge';
 import { SignalBar } from '@/components/signal-bar';
+import { DebatePanel } from '@/components/debate-panel';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -131,6 +132,8 @@ export default function AnalysisPage() {
   };
 
   const VerdictIcon = verdictThemes.icon;
+  const isPdf = analysis.imageUrl.toLowerCase().includes('pdf');
+  const isImageMode = analysis.imageUrl !== 'text-only' && !isPdf;
   const clipScorePct = Math.round(analysis.clipScore * 100);
 
   const similarityRating =
@@ -187,9 +190,13 @@ export default function AnalysisPage() {
                 <span className="text-muted-foreground/60">•</span>
                 <span className="font-medium lowercase text-muted-foreground">
                   {analysis.imageUrl === 'text-only'
-                    ? 'multi-agent verification (6 agents)'
-                    : analysis.imageUrl.toLowerCase().includes('pdf')
-                    ? 'pdf ocr + multi-agent pipeline'
+                    ? analysis.verdictMode === 'debate'
+                      ? 'multi-agent debate verification'
+                      : 'multi-agent verification'
+                    : isPdf
+                    ? analysis.verdictMode === 'debate'
+                      ? 'pdf ocr + multi-agent debate'
+                      : 'pdf ocr + multi-agent pipeline'
                     : 'clip vi-t + lr'}
                 </span>
               </div>
@@ -261,20 +268,30 @@ export default function AnalysisPage() {
                 sublabel="Model Certainty"
                 size="md"
               />
-              <ConfidenceGauge
-                value={analysis.clipScore}
-                label="Similarity"
-                sublabel="CLIP Visual Match"
-                size="md"
-              />
+              {isImageMode ? (
+                <ConfidenceGauge
+                  value={analysis.clipScore}
+                  label="Similarity"
+                  sublabel="CLIP Visual Match"
+                  size="md"
+                />
+              ) : (
+                <ConfidenceGauge
+                  value={analysis.evidenceScore}
+                  label="Support"
+                  sublabel="P(claim supported)"
+                  size="md"
+                />
+              )}
             </div>
           </div>
         </CardContent>
       </Card>
 
       {/* ── HIGHLIGHT METRICS SECTION: SIMILARITY & SIGNAL BREAKDOWN ── */}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className={cn('grid gap-6', isImageMode && 'md:grid-cols-2')}>
         {/* Multimodal Similarity Spotlight Card */}
+        {isImageMode && (
         <Card className="rounded-2xl border transition-shadow hover:shadow-sm">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
@@ -325,6 +342,7 @@ export default function AnalysisPage() {
             </p>
           </CardContent>
         </Card>
+        )}
 
         {/* Signal Scores Breakdown */}
         <Card className="rounded-2xl border transition-shadow hover:shadow-sm">
@@ -335,12 +353,14 @@ export default function AnalysisPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <SignalBar
-              label="Visual Similarity (CLIP)"
-              value={analysis.clipScore}
-              subValue={`${analysis.clipScore.toFixed(2)} / 1.00`}
-              description="Image–claim visual embedding correspondence"
-            />
+            {isImageMode && (
+              <SignalBar
+                label="Visual Similarity (CLIP)"
+                value={analysis.clipScore}
+                subValue={`${analysis.clipScore.toFixed(2)} / 1.00`}
+                description="Image–claim visual embedding correspondence"
+              />
+            )}
             <SignalBar
               label="Evidence Alignment"
               value={analysis.evidenceScore}
@@ -371,6 +391,11 @@ export default function AnalysisPage() {
           </p>
         </CardContent>
       </Card>
+
+      {/* ── AGENT DEBATE (text / PDF) ── */}
+      {analysis.debate && analysis.debate.length > 0 && (
+        <DebatePanel debate={analysis.debate} labelProbs={analysis.labelProbs} />
+      )}
 
       {/* ── FACT CHECK EVIDENCE SOURCES ── */}
       {analysis.evidence?.length > 0 && (

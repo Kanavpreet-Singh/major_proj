@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "db:push": "drizzle-kit push --config=drizzle.config.ts"
+    "db:push": "drizzle-kit push --config=drizzle.config.ts",
+    "db:init": "node --env-file=.env scripts/db-init.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

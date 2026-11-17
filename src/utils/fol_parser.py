@@ -2,6 +2,7 @@ from typing import Dict, Any, List
 from dataclasses import dataclass
 from enum import Enum
 from loguru import logger
+from src.utils.json_utils import parse_json_response
 import yaml
 import json
 from pathlib import Path
@@ -50,7 +51,7 @@ class FOLParser:
 
             # Parse JSON safely (handles empty, markdown-fenced, or malformed responses)
             logger.info(type(response_text))
-            json_response=json.loads(response_text)
+            json_response=parse_json_response(response_text)
             if isinstance(json_response, dict):
                 subclaims = json_response.get('subclaims', [])
             else:
@@ -70,7 +71,7 @@ class FOLParser:
         prompt = self.prompts.get('subclaim_classification', '').format(claim=subclaim)
         try:
             response_text = self.llm._generate_ollama(prompt=prompt)
-            json_response = json.loads(response_text)
+            json_response = parse_json_response(response_text)
 
             return json_response
 

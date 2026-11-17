@@ -32,6 +32,12 @@ export const mlResponseSchema = z.object({
   language: z.string(),
   latencyMs: z.number(),
   evidence: z.array(evidenceItemSchema),
+  // Present for text/PDF analyses decided by the multi-agent debate
+  verdictMode: z.string().optional(),
+  labelProbs: z
+    .object({ supported: z.number(), refuted: z.number(), insufficient: z.number() })
+    .optional(),
+  debate: z.array(z.any()).nullable().optional(),
 });
 
 export type MLResponse = z.infer<typeof mlResponseSchema>;
