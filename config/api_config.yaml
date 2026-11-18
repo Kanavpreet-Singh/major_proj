@@ -24,10 +24,14 @@ llm:
   content_analysis_provider: "ollama"  # or "gemini"
   gemini:
     api_key: "${GEMINI_API_KEY}"
-    model: "gemini-2.5-flash"  # pinned for reproducible results
+    model: "gemini-2.5-flash"  # primary model, pinned for reproducible results
+    # Used only when the primary model's free-tier quota runs out (quota is per model).
+    # For paper evaluations, empty this list so every result comes from one model.
+    fallback_models: ["gemini-3.5-flash-lite", "gemini-flash-latest"]
     timeout: 60
     temperature: 0.2
     max_retries: 5  # on 429 rate limit / 503 overload
+    max_retry_wait: 60  # seconds; longer suggested waits mean the quota is exhausted, so fail fast
 
 # Search API Configuration
 search:

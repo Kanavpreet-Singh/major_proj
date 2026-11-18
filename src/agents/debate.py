@@ -15,13 +15,14 @@ For one subclaim and its retrieved evidence:
 """
 
 import re
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional
 
 from loguru import logger
 
 from src.utils.json_utils import parse_json_response  # noqa: F401  (re-exported)
+from src.utils.events import as_emitter
 
 
 # ----------------------------------------------------------------------------
@@ -151,13 +152,20 @@ class DebateAgent:
 
     # ------------------------------------------------------------------ public
 
-    def debate(self, claim: str, subclaim: str, evidence: List[Any]) -> DebateResult:
-        ev_table = self._build_evidence_table(evidence)
+    def debate(self, claim: str, subclaim: str, evidence: List[Any],
+               on_event=None, subclaim_index: int = 0) -> DebateResult:
+        emit = as_emitter(on_event)
+        ev_table = self._build_evidence_table(evidence, subclaim)
         errors: List[str] = []
         calls = 0
 
+        emit("debate_start", subclaim_index=subclaim_index, subclaim=subclaim,
+             evidence=ev_table, rounds=self.rounds)
+
         if not ev_table:
             judge = JudgeDecision(0.0, 0.0, 1.0, "tie", [], "No evidence was retrieved for this subclaim.")
+            emit("judge", subclaim_index=subclaim_index, judge=asdict(judge), label="insufficient",
+                 abstained=True, grounding={"defender": None, "prosecutor": None})
             return DebateResult(subclaim, "insufficient", True, judge, [], [], {},
                                 {"defender": None, "prosecutor": None}, 0, [])
 
@@ -169,20 +177,32 @@ class DebateAgent:
             transcript = self._format_transcript(arguments)
             # Both sides argue simultaneously from the same transcript, so
             # neither gets a last-word advantage within a round.
+            round_args: Dict[str, Argument] = {}
             with ThreadPoolExecutor(max_workers=2) as pool:
-                futures = {
-                    role: pool.submit(self._argue, role, rnd, claim, subclaim, ev_text, transcript, passages)
-                    for role in ("defender", "prosecutor")
-                }
+                futures = {}
                 for role in ("defender", "prosecutor"):
+                    emit("thinking", subclaim_index=subclaim_index, role=role, round=rnd)
+                    fut = pool.submit(self._argue, role, rnd, claim, subclaim, ev_text, transcript, passages)
+                    futures[fut] = role
+                # Stream each argument the moment it is ready
+                for fut in as_completed(futures):
+                    role = futures[fut]
                     calls += 1
                     try:
-                        arguments.append(futures[role].result())
+                        arg = fut.result()
+                        round_args[role] = arg
+                        emit("argument", subclaim_index=subclaim_index, argument=asdict(arg))
                     except Exception as e:
                         logger.warning(f"Debate {role} round {rnd} failed: {e}")
                         errors.append(f"{role} r{rnd}: {e}")
+                        emit("argument_failed", subclaim_index=subclaim_index, role=role, round=rnd)
+            # Stable transcript order regardless of who finished first
+            arguments.extend(round_args[r] for r in ("defender", "prosecutor") if r in round_args)
+            if not arguments:
+                raise RuntimeError(f"Debate could not start ({'; '.join(errors)})")
 
         calls += 1
+        emit("judging", subclaim_index=subclaim_index)
         try:
             judge = self._judge(claim, subclaim, ev_text, arguments)
         except Exception as e:
@@ -191,6 +211,12 @@ class DebateAgent:
             raise RuntimeError(f"Debate judge failed ({'; '.join(errors + [str(e)])})") from e
 
         label, abstained = self._decide(judge)
+        grounding = {
+            role: self._grounding_rate([a for a in arguments if a.role == role])
+            for role in ("defender", "prosecutor")
+        }
+        emit("judge", subclaim_index=subclaim_index, judge=asdict(judge), label=label,
+             abstained=abstained, grounding=grounding)
         return DebateResult(
             subclaim=subclaim,
             label=label,
@@ -199,10 +225,7 @@ class DebateAgent:
             arguments=arguments,
             evidence=ev_table,
             evidence_stance=self._evidence_stance(arguments, ev_table, judge, label),
-            grounding={
-                role: self._grounding_rate([a for a in arguments if a.role == role])
-                for role in ("defender", "prosecutor")
-            },
+            grounding=grounding,
             llm_calls=calls,
             errors=errors,
         )
@@ -278,8 +301,8 @@ class DebateAgent:
 
     # ---------------------------------------------------------------- helpers
 
-    def _build_evidence_table(self, evidence: List[Any]) -> List[Dict[str, Any]]:
-        """Deduplicate passages, rank by credibility, assign stable IDs E1..En."""
+    def _build_evidence_table(self, evidence: List[Any], subclaim: str = "") -> List[Dict[str, Any]]:
+        """Deduplicate passages, rank by credibility then relevance to the subclaim, assign IDs E1..En."""
         seen, rows = set(), []
         for ev in evidence or []:
             passage = (getattr(ev, "passage", "") or "").strip()
@@ -295,7 +318,8 @@ class DebateAgent:
                 "passage": passage[: self.max_passage_chars],
                 "credibility": float(getattr(ev, "credibility_score", 0.5) or 0.5),
             })
-        rows.sort(key=lambda r: r["credibility"], reverse=True)
+        sub = set(_tokens(subclaim))
+        rows.sort(key=lambda r: (round(r["credibility"], 1), len(sub & set(_tokens(r["passage"])))), reverse=True)
         rows = rows[: self.max_evidence]
         for i, r in enumerate(rows, 1):
             r["id"] = f"E{i}"

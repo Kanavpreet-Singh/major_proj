@@ -1,5 +1,12 @@
 import os
+import json
+import queue
+import threading
 import uvicorn
+from dotenv import load_dotenv
+from fastapi.responses import StreamingResponse
+
+load_dotenv()
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -54,6 +61,42 @@ def analyze_endpoint(payload: AnalyzeRequest, x_api_key: Optional[str] = Header(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/analyze/stream")
+def analyze_stream_endpoint(payload: AnalyzeRequest, x_api_key: Optional[str] = Header(None)):
+    """Same as /analyze, but streams progress events as JSON lines, ending with a 'result' or 'error' line."""
+    expected_key = os.getenv("ML_API_KEY")
+    if expected_key and x_api_key != expected_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    events: "queue.Queue" = queue.Queue()
+
+    def run():
+        try:
+            result = analyze(
+                image_url=payload.image_url,
+                claim=payload.claim,
+                language=payload.language or "auto",
+                input_type=payload.type or "image-text",
+                on_event=events.put,
+            )
+            events.put({"event": "result", "result": result})
+        except Exception as e:
+            events.put({"event": "error", "message": str(e)})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=run, daemon=True).start()
+
+    def lines():
+        while True:
+            item = events.get()
+            if item is None:
+                return
+            yield json.dumps(item, ensure_ascii=True) + "\n"
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")
+
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))

@@ -21,6 +21,7 @@ import sys
 sys.path.append('..')
 from src.utils.llm_interface import LLMInterface
 from src.agents.debate import DebateAgent, parse_json_response
+from src.utils.events import as_emitter
 
 
 @dataclass
@@ -77,25 +78,33 @@ class VerdictPredictionAgent:
         logger.info(f"Verdict Prediction Agent initialized (mode={self.mode}, "
                     f"llm={'yes' if self.llm else 'no'})")
 
-    def process(self, evideneces: List[Any], claim: Optional[str] = None) -> VerdictResult:
+    def process(self, evideneces: List[Any], claim: Optional[str] = None, on_event=None) -> VerdictResult:
         """
         Predict verdict based on evidence.
 
         Args:
             evideneces: List of EvidenceResult objects, one per subclaim
             claim: Original full claim, given to the debaters as context
+            on_event: Optional callback receiving live progress events
 
         Returns:
             VerdictResult with final verdict, probabilities and explanation
         """
+        emit = as_emitter(on_event)
         subclaim_verdicts = []
-        for evidence_result in evideneces:
+        for idx, evidence_result in enumerate(evideneces):
             subclaim = evidence_result.subclaim_text
-            verdict = self._predict_subclaim_verdict(claim or subclaim, subclaim, evidence_result.evidence)
+            verdict = self._predict_subclaim_verdict(claim or subclaim, subclaim, evidence_result.evidence,
+                                                     emit=emit, index=idx)
             subclaim_verdicts.append(verdict)
+            emit("subclaim_verdict", subclaim_index=idx, verdict=verdict.supports, method=verdict.method,
+                 explanation=verdict.claim,
+                 probs={'supported': verdict.p_supported, 'refuted': verdict.p_refuted,
+                        'insufficient': verdict.p_insufficient})
 
         probs = self._aggregate_probs(subclaim_verdicts)
-        final_verdict = max(probs, key=probs.get)
+        # On ties, prefer the cautious outcome: never call a 50/50 claim "true"
+        final_verdict = max(("insufficient", "refuted", "supported"), key=probs.get)
         final_verdict = {
             'supported': 'SUPPORTED',
             'refuted': 'NOT_SUPPORTED',
@@ -125,11 +134,14 @@ class VerdictPredictionAgent:
 
     # ------------------------------------------------------------------ per subclaim
 
-    def _predict_subclaim_verdict(self, original_claim: str, subclaim: str, evidence_result: List[Any]) -> SubclaimVerdict:
+    def _predict_subclaim_verdict(self, original_claim: str, subclaim: str, evidence_result: List[Any],
+                                  emit=None, index: int = 0) -> SubclaimVerdict:
         """Decide one subclaim: debate, single LLM call, or heuristic fallback."""
+        emit = emit or as_emitter(None)
         if self.debate_agent:
             try:
-                d = self.debate_agent.debate(original_claim, subclaim, evidence_result)
+                d = self.debate_agent.debate(original_claim, subclaim, evidence_result,
+                                             on_event=emit, subclaim_index=index)
                 j = d.judge
                 return SubclaimVerdict(
                     supports=d.label,
@@ -143,6 +155,8 @@ class VerdictPredictionAgent:
                 )
             except Exception as e:
                 logger.warning(f"Debate failed, falling back to single verdict: {e}")
+                emit("notice", level="error", subclaim_index=index,
+                     message=f"The debate could not run: {self._short_error(e)}")
 
         cell = "\n".join(
             f"- Source: {getattr(ev, 'source_name', getattr(ev, 'source_url', 'Source'))}\n"
@@ -172,7 +186,17 @@ class VerdictPredictionAgent:
             except Exception as e:
                 logger.warning(f"LLM verdict prediction failed, falling back to evidence heuristics: {e}")
 
+        emit("notice", level="warning", subclaim_index=index,
+             message="No LLM available, so this subclaim was decided by keyword matching (lower quality).")
         return self._heuristic_verdict(subclaim, evidence_result, cell)
+
+    @staticmethod
+    def _short_error(e: Exception) -> str:
+        msg = str(e)
+        if "quota exhausted" in msg:
+            tail = msg[msg.index("Gemini quota exhausted"):]
+            return tail.split(" |")[0].split(";")[0].rstrip(")")
+        return msg[:160]
 
     def _heuristic_verdict(self, subclaim: str, evidence_result: List[Any], cell: str) -> SubclaimVerdict:
         """Keyword overlap between subclaim and evidence. Used only when no LLM is available."""

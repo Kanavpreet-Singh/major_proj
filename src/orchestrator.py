@@ -19,6 +19,7 @@ from src.agents.verdict_prediction import VerdictPredictionAgent
 from src.agents.explainable_ai import ExplainableAIAgent
 from src.agents.reinforcement_learning import ReinforcementLearningAgent
 from src.utils.llm_interface import LLMInterface
+from src.utils.events import as_emitter
 
 
 class FactCheckingOrchestrator:
@@ -114,7 +115,8 @@ class FactCheckingOrchestrator:
         claim: str,
         ground_truth: Optional[str] = None,
         enable_xai: bool = True,
-        enable_rl: bool = True
+        enable_rl: bool = True,
+        on_event=None,
     ) -> Dict[str, Any]:
         """
         Verify a factual claim end-to-end.
@@ -124,10 +126,12 @@ class FactCheckingOrchestrator:
             ground_truth: Optional ground truth label for evaluation
             enable_xai: Enable Explainable AI agent
             enable_rl: Enable Reinforcement Learning agent
+            on_event: Optional callback receiving progress events (for live streaming)
 
         Returns:
             Complete results dictionary with all agent outputs
         """
+        emit = as_emitter(on_event)
         logger.info("="*80)
         logger.info(f"VERIFYING CLAIM: {claim}")
         logger.info("="*80)
@@ -140,8 +144,11 @@ class FactCheckingOrchestrator:
         try:
             # AGENT 1: Input Ingestion
             logger.info("\n[1/6] Input Ingestion Agent - Decomposing claim...")
+            emit("stage", stage="decompose", status="start")
             ingestion_result = self.input_ingestion.process(claim)
             results['ingestion'] = self.input_ingestion.to_dict(ingestion_result)
+            emit("subclaims", items=[sc.get('text', '') for sc in ingestion_result.verifiable_subclaims])
+            emit("stage", stage="decompose", status="done")
             logger.info(f"✓ Found {len(ingestion_result.verifiable_subclaims)} verifiable subclaims")
 
             if not ingestion_result.verifiable_subclaims:
@@ -150,11 +157,15 @@ class FactCheckingOrchestrator:
                     'final_verdict': 'NOT_SUPPORTED',
                     'reason': 'No verifiable subclaims'
                 }
+                emit("notice", level="warning", message="No verifiable factual statements were found in the input.")
                 return results
 
             # AGENT 2: Query Generation
             logger.info("\n[2/6] Query Generation Agent - Creating search queries...")
+            emit("stage", stage="queries", status="start")
             query_results = self.query_generation.process(ingestion_result.verifiable_subclaims)
+            emit("queries", items=[qr.queries for qr in query_results])
+            emit("stage", stage="queries", status="done")
             results['queries'] = [
                 {
                     'subclaim_id': qr.subclaim_id,
@@ -171,7 +182,9 @@ class FactCheckingOrchestrator:
             logger.info("     Stage 2: Credibility Check")
             logger.info("     Stage 3: Content Extraction")
 
-            evidence_results = self.evidence_seeking.process(query_results)
+            emit("stage", stage="evidence", status="start")
+            evidence_results = self.evidence_seeking.process(query_results, on_event=emit)
+            emit("stage", stage="evidence", status="done")
             results['evidence'] = [
                 {
                     'total_sources': er.total_sources,
@@ -184,8 +197,11 @@ class FactCheckingOrchestrator:
 
             # AGENT 4: Verdict Prediction
             logger.info("\n[4/6] Verdict Prediction Agent - Aggregating evidence...")
-            verdict_result = self.verdict_prediction.process(evidence_results, claim=claim)
+            emit("stage", stage="debate", status="start")
+            verdict_result = self.verdict_prediction.process(evidence_results, claim=claim, on_event=emit)
             results['verdict'] = self.verdict_prediction.to_dict(verdict_result)
+            emit("stage", stage="debate", status="done")
+            emit("verdict", final=verdict_result.final_verdict, probs=verdict_result.label_probs)
             logger.info(f"✓ Verdict: {verdict_result.final_verdict})")
 
             # AGENT 5: Explainable AI (optional)
@@ -228,14 +244,15 @@ class FactCheckingOrchestrator:
     def verify_text(
         self,
         claim: str,
-        language: str = "auto"
+        language: str = "auto",
+        on_event=None,
     ) -> Dict[str, Any]:
         """
         Verify a text claim and format the response to strictly match the MLResponse schema
         expected by the VeriLens frontend and API.
         """
         start_time = time.time()
-        raw_res = self.verify_claim(claim=claim, enable_xai=True, enable_rl=False)
+        raw_res = self.verify_claim(claim=claim, enable_xai=True, enable_rl=False, on_event=on_event)
         latency_ms = int((time.time() - start_time) * 1000)
 
         # Parse verdict

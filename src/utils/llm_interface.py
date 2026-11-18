@@ -139,7 +139,12 @@ class LLMInterface:
                     http_options=types.HttpOptions(timeout=timeout_ms),
                 )
                 self.gemini_model = gemini_cfg.get('model', 'gemini-2.5-flash')
-                logger.info(f"Google Gemini client initialized successfully ({self.gemini_model})")
+                # Free-tier quota is per model: when one is used up, move to the next
+                self.gemini_models = [self.gemini_model] + [
+                    m for m in gemini_cfg.get('fallback_models', []) if m != self.gemini_model
+                ]
+                self.gemini_exhausted = set()
+                logger.info(f"Google Gemini client initialized successfully ({', '.join(self.gemini_models)})")
             else:
                 self.gemini_client = None
         except Exception as e:
@@ -198,6 +203,7 @@ class LLMInterface:
                 providers.append('ollama')
 
         last_error = None
+        failures = []
         for prov_name in providers:
             try:
                 if prov_name == 'gemini' and self.gemini_client:
@@ -209,10 +215,11 @@ class LLMInterface:
             except Exception as e:
                 logger.warning(f"{prov_name} generation failed: {e}")
                 last_error = e
+                failures.append(f"{prov_name}: {str(e)[:200]}")
                 continue
 
         if last_error:
-            raise Exception(f"All LLM providers failed. Last error: {last_error}")
+            raise Exception("All LLM providers failed. " + " | ".join(failures))
         raise Exception("No active LLM providers configured or available.")
 
     def _generate_gemini(
@@ -221,7 +228,34 @@ class LLMInterface:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None
     ) -> str:
-        """Generate text using Google Gemini, retrying on rate limits (429) and overload (503)."""
+        """
+        Generate text with Gemini. Tries the configured model first, then each fallback
+        model; a model whose daily quota is used up is skipped for the rest of the run.
+        """
+        if not hasattr(self, 'gemini_exhausted'):
+            self.gemini_exhausted = set()
+        all_models = getattr(self, 'gemini_models', None) or [self.gemini_model]
+        models = [m for m in all_models if m not in self.gemini_exhausted]
+        last_error: Optional[Exception] = None
+        for model in models:
+            try:
+                return self._gemini_call(model, prompt, temperature, max_tokens)
+            except RuntimeError as e:
+                if "quota exhausted" not in str(e):
+                    raise
+                self.gemini_exhausted.add(model)
+                last_error = e
+                logger.warning(f"Gemini quota exhausted for {model}; trying next model")
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Gemini model {model} failed ({str(e)[:120]}); trying next model")
+        if all(m in self.gemini_exhausted for m in all_models):
+            raise RuntimeError("Gemini quota exhausted on every configured model "
+                               f"({', '.join(all_models)}). Enable billing on the API key or try again later.")
+        raise last_error or RuntimeError("No Gemini model available")
+
+    def _gemini_call(self, model: str, prompt: str, temperature: Optional[float], max_tokens: Optional[int]) -> str:
+        """One Gemini model, retrying short rate limits (429) and overload (503)."""
         from google.genai import types, errors
         gemini_cfg = self.config.get('llm', {}).get('gemini', {})
         config = types.GenerateContentConfig(
@@ -232,7 +266,7 @@ class LLMInterface:
         for attempt in range(max_retries + 1):
             try:
                 resp = self.gemini_client.models.generate_content(
-                    model=self.gemini_model, contents=prompt, config=config
+                    model=model, contents=prompt, config=config
                 )
                 if not resp.text:
                     raise RuntimeError("Gemini returned an empty response")
@@ -243,6 +277,14 @@ class LLMInterface:
                 # Honour the server's suggested delay when it gives one
                 m = re.search(r"retry in ([\d.]+)s|'retryDelay': '(\d+)s'", str(e))
                 delay = float(next(g for g in m.groups() if g)) if m else min(60, 2 ** (attempt + 1))
+                max_wait = float(gemini_cfg.get('max_retry_wait', 60))
+                if delay > max_wait:
+                    # A long suggested wait means the daily quota is used up, not a
+                    # short burst limit: fail now instead of sleeping for hours.
+                    raise RuntimeError(
+                        f"Gemini quota exhausted (server asks to wait {delay / 3600:.1f}h). "
+                        f"Enable billing on the API key or try again later."
+                    ) from e
                 logger.warning(f"Gemini {e.code}, retrying in {delay:.0f}s ({attempt + 1}/{max_retries})")
                 time.sleep(delay)
 

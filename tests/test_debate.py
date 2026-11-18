@@ -148,3 +148,42 @@ def test_unreachable_llm_falls_back_to_heuristic_not_fake_debate():
                                        evidence=EVIDENCE)])
     assert v.mode == "heuristic"
     assert v.final_verdict == "SUPPORTED"  # keyword overlap with E1
+
+
+def test_debate_streams_events_in_order():
+    events = []
+    agent = DebateAgent(ScriptedLLM(), PROMPTS, {"rounds": 2})
+    r = agent.debate("c", "c", EVIDENCE, on_event=events.append, subclaim_index=3)
+
+    kinds = [e["event"] for e in events]
+    assert kinds[0] == "debate_start" and kinds[-2:] == ["judging", "judge"]
+    assert kinds.count("thinking") == 4 and kinds.count("argument") == 4
+    assert all(e["subclaim_index"] == 3 for e in events)
+    # every argument arrives after its own "thinking" event
+    for e in events:
+        if e["event"] == "argument":
+            a = e["argument"]
+            think = next(i for i, x in enumerate(events) if x["event"] == "thinking"
+                         and x["role"] == a["role"] and x["round"] == a["round"])
+            assert think < events.index(e)
+    assert events[-1]["label"] == r.label
+    json.dumps(events)  # must be serialisable for the stream
+
+
+def test_quota_exhausted_fails_fast(monkeypatch):
+    """A 429 asking to wait hours must raise immediately, not sleep (this hung the site)."""
+    from google.genai import errors
+    from src.utils.llm_interface import LLMInterface
+
+    llm = LLMInterface.__new__(LLMInterface)
+    llm.config = {"llm": {"gemini": {"max_retry_wait": 60}}}
+    llm.gemini_model = "x"
+
+    class Models:
+        def generate_content(self, **_):
+            raise errors.APIError(429, {"error": {"message": "Quota exceeded. Please retry in 48806.2s."}})
+
+    llm.gemini_client = SimpleNamespace(models=Models())
+    monkeypatch.setattr("time.sleep", lambda s: pytest.fail(f"slept {s}s"))
+    with pytest.raises(RuntimeError, match="quota exhausted"):
+        llm._generate_gemini("hi")

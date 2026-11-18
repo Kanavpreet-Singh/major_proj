@@ -16,6 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { LiveAnalysis } from '@/components/live-analysis';
+import { useAnalysisStream } from '@/lib/use-analysis-stream';
 import { ScanSearch, Upload, Link as LinkIcon, Loader2, ImageIcon, FileText, Type, X, FileCheck } from 'lucide-react';
 
 export default function AnalyzePage() {
@@ -25,6 +27,7 @@ export default function AnalyzePage() {
   const [language, setLanguage] = useState('auto');
   const [loading, setLoading] = useState(false);
   const [analysisType, setAnalysisType] = useState<'text' | 'pdf' | 'image-text'>('image-text');
+  const live = useAnalysisStream();
 
   // --- Text tab ---
   const [textContent, setTextContent] = useState('');
@@ -106,15 +109,22 @@ export default function AnalyzePage() {
       if (!imageClaim.trim()) { toast.error('Please enter a claim to verify.'); return; }
     }
 
+    const payload =
+      analysisType === 'text'
+        ? { imageUrl: 'text-only', claim: textContent.trim(), language, type: 'text' }
+        : analysisType === 'pdf'
+        ? { imageUrl: effectivePdfUrl, claim: pdfClaim.trim() || 'Analyze this document for misinformation.', language, type: 'pdf' }
+        : { imageUrl: effectiveImageUrl, claim: imageClaim.trim(), language, type: 'image-text' };
+
+    // Text and PDF go through the multi-agent debate: stream it live
+    if (analysisType !== 'image-text') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      live.start(payload);
+      return;
+    }
+
     setLoading(true);
     try {
-      const payload =
-        analysisType === 'text'
-          ? { imageUrl: 'text-only', claim: textContent.trim(), language, type: 'text' }
-          : analysisType === 'pdf'
-          ? { imageUrl: effectivePdfUrl, claim: pdfClaim.trim() || 'Analyze this document for misinformation.', language, type: 'pdf' }
-          : { imageUrl: effectiveImageUrl, claim: imageClaim.trim(), language, type: 'image-text' };
-
       const res = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -147,6 +157,14 @@ export default function AnalyzePage() {
       </CardContent>
     </Card>
   );
+
+  if (live.state.status !== 'idle') {
+    return (
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+        <LiveAnalysis state={live.state} onCancel={live.cancel} onReset={live.reset} />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">

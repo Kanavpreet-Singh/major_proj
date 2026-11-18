@@ -33,6 +33,9 @@ evidence_seeking:
   enable_full_page_render: false  # Set to true if using Selenium
   min_passage_length: 50
   max_passages_per_source: 3
+  llm_extraction: false   # true = one LLM call per page (slow, uses quota, paraphrases sources)
+  passages_per_page: 3    # best-matching passages kept from each page
+  passage_chars: 500
 
 # Verdict Prediction Agent Settings
 verdict_prediction:

@@ -110,11 +110,17 @@ def get_embeddings(image, text):
 
     return img_emb, txt_emb, clip_score
 
-def analyze(image_url: str, claim: str, language: str = "auto", input_type: str = "image-text"):
+def emit_stdout(event: dict):
+    """Write one progress event as a JSON line; the Node bridge streams these to the browser."""
+    sys.stdout.write(json.dumps(event, ensure_ascii=True) + "\n")
+    sys.stdout.flush()
+
+
+def analyze(image_url: str, claim: str, language: str = "auto", input_type: str = "image-text", on_event=None):
     # 1. TEXT-ONLY PATH: Route to Multi-Agent Fact Checking Orchestrator
     if input_type == "text" or image_url == "text-only" or not str(image_url).strip():
         orchestrator = get_orchestrator()
-        return orchestrator.verify_text(claim=claim, language=language)
+        return orchestrator.verify_text(claim=claim, language=language, on_event=on_event)
 
     # 2. PDF PATH: Extract text (with OCR fallback for scanned pages) and send to text-only path
     is_pdf = (
@@ -126,6 +132,8 @@ def analyze(image_url: str, claim: str, language: str = "auto", input_type: str 
         ))
     )
     if is_pdf:
+        if on_event:
+            on_event({"event": "stage", "stage": "extract", "status": "start"})
         extractor = get_pdf_extractor()
         pdf_res = extractor.extract_text(image_url)
         extracted_claim = pdf_res.get("extracted_claim", "")
@@ -138,8 +146,11 @@ def analyze(image_url: str, claim: str, language: str = "auto", input_type: str 
         else:
             claim_to_verify = extracted_claim or claim.strip()
 
+        if on_event:
+            on_event({"event": "stage", "stage": "extract", "status": "done",
+                      "pages": pages_count, "ocr": ocr_used, "claim": claim_to_verify[:500]})
         orchestrator = get_orchestrator()
-        result = orchestrator.verify_text(claim=claim_to_verify, language=language)
+        result = orchestrator.verify_text(claim=claim_to_verify, language=language, on_event=on_event)
 
         method_desc = "OCR extraction" if ocr_used else "digital text extraction"
         prefix = f"[PDF Ingestion ({method_desc}, {pages_count} pages)] "
@@ -236,7 +247,7 @@ if __name__ == "__main__":
                 if not clm and itype != "pdf":
                     sys.stderr.write("Error: 'claim' field is required in payload\n")
                     sys.exit(1)
-                result = analyze(img, clm, lang, itype)
+                result = analyze(img, clm, lang, itype, on_event=emit_stdout)
                 print(json.dumps(result, ensure_ascii=True))
                 sys.exit(0)
 
