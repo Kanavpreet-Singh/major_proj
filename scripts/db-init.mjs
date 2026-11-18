@@ -34,7 +34,21 @@ await sql`ALTER TABLE analyses ADD COLUMN IF NOT EXISTS verdict_mode text`;
 await sql`ALTER TABLE analyses ADD COLUMN IF NOT EXISTS label_probs jsonb`;
 await sql`ALTER TABLE analyses ADD COLUMN IF NOT EXISTS debate jsonb`;
 await sql`CREATE INDEX IF NOT EXISTS idx_analyses_session_id ON analyses (session_id)`;
-console.log('Table "analyses" is ready.');
+await sql`
+  CREATE TABLE IF NOT EXISTS xrays (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id text NOT NULL,
+    url text NOT NULL,
+    title text NOT NULL,
+    text text NOT NULL,
+    truncated boolean NOT NULL DEFAULT false,
+    claims jsonb NOT NULL,
+    summary jsonb NOT NULL,
+    latency_ms integer NOT NULL,
+    created_at timestamp DEFAULT now() NOT NULL
+  )`;
+await sql`CREATE INDEX IF NOT EXISTS idx_xrays_session_id ON xrays (session_id)`;
+console.log('Tables "analyses" and "xrays" are ready.');
 
 const file = 'data/analyses.json';
 const local = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];

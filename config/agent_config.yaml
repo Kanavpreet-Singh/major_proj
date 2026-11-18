@@ -101,3 +101,10 @@ global:
   enable_caching: true
   cache_dir: "data/cache"
   max_cache_size_mb: 500
+
+# Article X-Ray (find and fact-check the claims in an article)
+xray:
+  max_claims: 4            # LLM calls per scan = 1 + max_claims * (2 * debate_rounds + 1)
+  max_article_chars: 12000 # longer articles are cut at a paragraph boundary
+  debate_rounds: 1         # 1 = opening arguments + judge (keeps quota use low)
+  parallel_claims: 3       # claims checked at the same time

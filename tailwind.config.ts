@@ -9,6 +9,8 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      // Tailwind 3.3 has no 15% step; the UI uses it for soft tinted badges and highlights
+      opacity: { 15: "0.15" },
       fontFamily: {
         sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
       },

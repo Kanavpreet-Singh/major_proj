@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, real, integer, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, real, integer, timestamp, jsonb, index, boolean } from 'drizzle-orm/pg-core';
 
 export const analyses = pgTable(
   'analyses',
@@ -28,3 +28,23 @@ export const analyses = pgTable(
 );
 
 export type Analysis = typeof analyses.$inferSelect;
+
+export const xrays = pgTable(
+  'xrays',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: text('session_id').notNull(),
+    url: text('url').notNull(),
+    title: text('title').notNull(),
+    text: text('text').notNull(),
+    truncated: boolean('truncated').notNull().default(false),
+    claims: jsonb('claims').notNull(),
+    summary: jsonb('summary').notNull(),
+    latencyMs: integer('latency_ms').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    sessionIdIdx: index('idx_xrays_session_id').on(table.sessionId),
+  })
+);
+

@@ -9,7 +9,7 @@ export interface PipelineInput {
   imageUrl: string;
   claim: string;
   language: string;
-  type: 'text' | 'pdf' | 'image-text';
+  type: 'text' | 'pdf' | 'image-text' | 'xray';
 }
 
 // A debate can take several minutes; this is only a safety net against a hung process.
@@ -22,12 +22,23 @@ const PIPELINE_TIMEOUT_MS = Number(process.env.ML_TIMEOUT_MS ?? 10 * 60 * 1000);
  * Uses the ML HTTP service (ML_API_URL) when it is reachable. If it is not running,
  * the pipeline is run as a local Python process instead. Only a refused connection
  * triggers that fallback: a slow or failed analysis is never silently re-run.
+ *
+ * `parse` validates the final result (defaults to the claim-analysis schema).
  */
-export async function runPipeline(
+export async function runPipeline<T = MLResponse>(
   input: PipelineInput,
   onEvent: (e: PipelineEvent) => void = () => {},
+  signal?: AbortSignal,
+  parse: (raw: unknown) => T = (raw) => mlResponseSchema.parse(raw) as T
+): Promise<T> {
+  return parse(await runRaw(input, onEvent, signal));
+}
+
+async function runRaw(
+  input: PipelineInput,
+  onEvent: (e: PipelineEvent) => void,
   signal?: AbortSignal
-): Promise<MLResponse> {
+): Promise<unknown> {
   const raw = process.env.ML_API_URL;
   const apiUrl = raw ? raw.replace('//localhost', '//127.0.0.1').replace(/\/$/, '') : null;
 
@@ -71,7 +82,7 @@ async function runViaService(
   input: PipelineInput,
   onEvent: (e: PipelineEvent) => void,
   signal?: AbortSignal
-): Promise<MLResponse> {
+): Promise<unknown> {
   // Abort on client disconnect or timeout (AbortSignal.any is not in this TS lib)
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(new Error('Analysis timed out.')), PIPELINE_TIMEOUT_MS);
@@ -88,7 +99,7 @@ async function readServiceStream(
   input: PipelineInput,
   onEvent: (e: PipelineEvent) => void,
   signal: AbortSignal
-): Promise<MLResponse> {
+): Promise<unknown> {
   const res = await fetch(`${apiUrl}/analyze/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ML_API_KEY ?? '' },
@@ -99,10 +110,10 @@ async function readServiceStream(
     throw new Error(`ML service returned ${res.status}: ${await res.text().catch(() => '')}`);
   }
 
-  let result: MLResponse | null = null;
+  let result: unknown = null;
   let failure: string | null = null;
   const parse = lineParser((obj) => {
-    if (obj.event === 'result') result = mlResponseSchema.parse(obj.result);
+    if (obj.event === 'result') result = obj.result;
     else if (obj.event === 'error') failure = String(obj.message);
     else if (typeof obj.event === 'string') onEvent(obj as PipelineEvent);
   });
@@ -125,19 +136,18 @@ function runLocal(
   input: PipelineInput,
   onEvent: (e: PipelineEvent) => void,
   signal?: AbortSignal
-): Promise<MLResponse> {
+): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const py = spawn('python', [path.join(process.cwd(), 'ml', 'predict.py')], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, HF_HOME: process.env.HF_HOME ?? 'E:\\.cache\\huggingface', PYTHONUNBUFFERED: '1' },
     });
 
-    let result: MLResponse | null = null;
     let lastJson: Record<string, unknown> | null = null;
     let stderr = '';
     let settled = false;
 
-    const finish = (err: Error | null, value?: MLResponse) => {
+    const finish = (err: Error | null, value?: unknown) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -170,14 +180,8 @@ function runLocal(
     py.on('error', (err) => finish(err));
     py.on('close', (code) => {
       parse('', true);
-      if (lastJson && 'label' in lastJson) {
-        try {
-          result = mlResponseSchema.parse(lastJson);
-          return finish(null, result);
-        } catch (err) {
-          return finish(err instanceof Error ? err : new Error(String(err)));
-        }
-      }
+      // The final result is the last JSON line without an "event" key
+      if (lastJson) return finish(null, lastJson);
       const reason = stderr.split('\n').reverse().find((l) => l.trim()) ?? 'no output';
       finish(new Error(`Python process exited with code ${code}: ${reason.replace(/\x1b\[[0-9;]*m/g, '')}`));
     });

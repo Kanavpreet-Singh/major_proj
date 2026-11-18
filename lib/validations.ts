@@ -41,3 +41,56 @@ export const mlResponseSchema = z.object({
 });
 
 export type MLResponse = z.infer<typeof mlResponseSchema>;
+
+// ── Article X-Ray ──────────────────────────────────────────────
+
+export const xrayInputSchema = z
+  .object({
+    url: z.string().url().optional(),
+    text: z.string().max(20000).optional(),
+  })
+  .refine((v) => Boolean(v.url) !== Boolean(v.text?.trim()), {
+    message: 'Provide either an article URL or pasted text.',
+  });
+
+const probsSchema = z.object({ supported: z.number(), refuted: z.number(), insufficient: z.number() });
+
+export const xrayClaimSchema = z.object({
+  index: z.number(),
+  quote: z.string(),
+  claim: z.string(),
+  start: z.number(),
+  end: z.number(),
+  checkworthiness: z.number(),
+  category: z.string(),
+  label: z.enum(['supported', 'not_supported', 'insufficient']).optional(),
+  probs: probsSchema.optional(),
+  explanation: z.string().optional(),
+  method: z.string().optional(),
+  debate: z.any().nullable().optional(),
+  sources: z.array(z.object({ title: z.string(), url: z.string() })).optional(),
+});
+
+export const xraySummarySchema = z.object({
+  total: z.number(),
+  supported: z.number(),
+  not_supported: z.number(),
+  insufficient: z.number(),
+  truth_score: z.number().nullable(),
+});
+
+export const xrayResultSchema = z.object({
+  kind: z.literal('xray'),
+  title: z.string(),
+  url: z.string(),
+  text: z.string(),
+  truncated: z.boolean(),
+  claims: z.array(xrayClaimSchema),
+  summary: xraySummarySchema,
+  latencyMs: z.number(),
+});
+
+export type XRayClaim = z.infer<typeof xrayClaimSchema>;
+export type XRaySummary = z.infer<typeof xraySummarySchema>;
+export type XRayResult = z.infer<typeof xrayResultSchema>;
+export type XRayRecord = Omit<XRayResult, 'kind'> & { id: string; sessionId: string; createdAt: string };

@@ -266,3 +266,33 @@ explainable_ai: |
       "Readability": {{ "1": "<method>", "2": "<method>", "3": "<method>", "4": "<method>" }}
     }}
   }}
+
+xray_claim_extraction: |
+  You are a professional fact-checker scanning an article for check-worthy factual claims.
+
+  Article:
+  {article}
+
+  Find up to {max_claims} claims that are worth fact-checking. A claim is worth checking when it
+  states a specific fact that could be verified: a number, date, quantity, record, event, award,
+  ranking, attribution, or a concrete statement about a named person, organisation or place.
+  Skip opinions, predictions, advice, vague statements and trivial facts.
+
+  For each claim give:
+  - "quote": the sentence (or part of a sentence) from the article that makes the claim, copied
+    WORD FOR WORD so it can be highlighted in the article.
+  - "claim": the claim rewritten as a standalone statement that makes sense without the article.
+    Replace pronouns and vague references (he, the company, the tower) with the names they refer
+    to, and add the time or place when the article implies it. One fact per claim.
+  - "checkworthiness": a number from 0 to 1: how important and how checkable the claim is.
+  - "category": one of number, date, event, person, organisation, place, science, other.
+
+  Prefer claims spread across the article. Use single quotes instead of double quotes inside strings.
+
+  IMPORTANT: Your response must be valid JSON only, with no additional text, markdown, or explanation outside the JSON object.
+  It will be parsed using `json.loads()` in Python. Output strictly in this schema:
+  {{
+    "claims": [
+      {{"quote": "<exact words from the article>", "claim": "<standalone claim>", "checkworthiness": <number>, "category": "<category>"}}
+    ]
+  }}

@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import threading
 import argparse
 from pathlib import Path
 import numpy as np
@@ -110,13 +111,35 @@ def get_embeddings(image, text):
 
     return img_emb, txt_emb, clip_score
 
+_stdout_lock = threading.Lock()
+
+
 def emit_stdout(event: dict):
     """Write one progress event as a JSON line; the Node bridge streams these to the browser."""
-    sys.stdout.write(json.dumps(event, ensure_ascii=True) + "\n")
-    sys.stdout.flush()
+    line = json.dumps(event, ensure_ascii=True) + "\n"
+    with _stdout_lock:  # events arrive from several threads
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+
+_xray = None
+
+
+def get_xray():
+    global _xray
+    if _xray is None:
+        from src.xray import ArticleXRay
+        orch = get_orchestrator()
+        _xray = ArticleXRay(orch.llm, orch.evidence_seeking)
+    return _xray
 
 
 def analyze(image_url: str, claim: str, language: str = "auto", input_type: str = "image-text", on_event=None):
+    # 0. ARTICLE X-RAY: image_url carries the article URL, claim carries pasted text
+    if input_type == "xray":
+        url = image_url if str(image_url).startswith(("http://", "https://")) else ""
+        return get_xray().run(url=url, text=claim, on_event=on_event)
+
     # 1. TEXT-ONLY PATH: Route to Multi-Agent Fact Checking Orchestrator
     if input_type == "text" or image_url == "text-only" or not str(image_url).strip():
         orchestrator = get_orchestrator()
@@ -244,7 +267,7 @@ if __name__ == "__main__":
                 clm = payload.get("claim", "")
                 lang = payload.get("language", "auto")
                 itype = payload.get("type", "image-text")
-                if not clm and itype != "pdf":
+                if not clm and itype not in ("pdf", "xray"):
                     sys.stderr.write("Error: 'claim' field is required in payload\n")
                     sys.exit(1)
                 result = analyze(img, clm, lang, itype, on_event=emit_stdout)
