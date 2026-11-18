@@ -23,3 +23,14 @@ export function languageLabel(code: string): string {
   };
   return map[code] ?? code;
 }
+
+/** What kind of input an analysis was made from, judged from its stored source. */
+export function inputKind(source: string): 'text' | 'pdf' | 'image' {
+  if (source === 'text-only' || !source) return 'text';
+  if (source.startsWith('data:')) return source.startsWith('data:application/pdf') ? 'pdf' : 'image';
+  try {
+    return new URL(source).pathname.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image';
+  } catch {
+    return 'image';
+  }
+}

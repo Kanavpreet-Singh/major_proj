@@ -77,10 +77,10 @@ def fetch_article(url: str, timeout: int = 15) -> Dict[str, str]:
         tag.decompose()
     root = soup.find("article") or soup.find("main") or soup.find(attrs={"role": "main"}) or soup.body or soup
     paragraphs = []
-    for p in root.find_all(["p", "h2", "h3", "li"]):
+    for p in root.find_all(["p", "h2", "h3"]):  # lists on news pages are mostly related-link clutter
         text = re.sub(r"\s+", " ", p.get_text(" ", strip=True))
         text = re.sub(r"\[\s*\d+\s*\]", "", text).strip()  # Wikipedia-style citation markers
-        if len(text) >= 40 or (p.name in ("h2", "h3") and len(text) >= 3):
+        if len(text) >= 40:
             if not paragraphs or paragraphs[-1] != text:
                 paragraphs.append(text)
     if not paragraphs:

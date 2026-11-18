@@ -12,7 +12,8 @@ const config: Config = {
       // Tailwind 3.3 has no 15% step; the UI uses it for soft tinted badges and highlights
       opacity: { 15: "0.15" },
       fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+        sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
+        serif: ['var(--font-serif)', 'Georgia', 'serif'],
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',

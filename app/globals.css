@@ -2,84 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+  VeriLens: "proof marks".
+  Chrome is ink on paper with one blue for actions. Saturated colour is reserved
+  for verdicts (holds up / false / unclear), used like a highlighter on text.
+*/
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
+    --background: 220 20% 97%;          /* paper  #F5F6F8 */
+    --foreground: 222 37% 12%;          /* ink    #131A2A */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 222 37% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 199 89% 48%;
+    --popover-foreground: 222 37% 12%;
+    --primary: 228 69% 55%;             /* lens blue #3B5BDB */
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 199 89% 95%;
-    --accent-foreground: 199 89% 30%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 199 89% 48%;
-    --success: 142 71% 45%;
+    --secondary: 220 18% 93%;
+    --secondary-foreground: 222 37% 12%;
+    --muted: 220 18% 93%;
+    --muted-foreground: 220 10% 42%;
+    --accent: 220 18% 93%;
+    --accent-foreground: 222 37% 12%;
+    --border: 220 16% 88%;
+    --input: 220 16% 86%;
+    --ring: 228 69% 55%;
+
+    --success: 154 68% 37%;             /* holds up #1E9E64 */
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
+    --destructive: 358 75% 59%;         /* false    #E5484D */
+    --destructive-foreground: 0 0% 100%;
+    --warning: 37 70% 51%;              /* unclear  #D9952B */
     --warning-foreground: 0 0% 100%;
-    --neutral: 215 16% 47%;
+    --neutral: 220 10% 42%;
     --neutral-foreground: 0 0% 100%;
-    --chart-1: 142 71% 45%;
-    --chart-2: 0 84% 60%;
-    --chart-3: 38 92% 50%;
-    --chart-4: 215 16% 55%;
-    --chart-5: 199 89% 48%;
-    --radius: 0.75rem;
+
+    --chart-1: 154 68% 37%;
+    --chart-2: 358 75% 59%;
+    --chart-3: 37 70% 51%;
+    --chart-4: 220 10% 60%;
+    --chart-5: 228 69% 55%;
+    --radius: 0.625rem;
   }
+
   .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 10%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 10%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 199 89% 52%;
-    --primary-foreground: 222 47% 7%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 20%;
-    --accent-foreground: 199 89% 70%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 217 33% 20%;
-    --input: 217 33% 20%;
-    --ring: 199 89% 52%;
-    --success: 142 71% 45%;
-    --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
-    --neutral: 215 16% 55%;
-    --neutral-foreground: 0 0% 100%;
-    --chart-1: 142 71% 45%;
-    --chart-2: 0 72% 51%;
-    --chart-3: 38 92% 50%;
-    --chart-4: 215 20% 65%;
-    --chart-5: 199 89% 52%;
+    --background: 224 35% 9%;           /* ink paper #0F1420 */
+    --foreground: 220 25% 93%;
+    --card: 224 30% 13%;                /* #161C2A */
+    --card-foreground: 220 25% 93%;
+    --popover: 224 30% 13%;
+    --popover-foreground: 220 25% 93%;
+    --primary: 228 85% 70%;
+    --primary-foreground: 224 35% 9%;
+    --secondary: 224 24% 18%;
+    --secondary-foreground: 220 25% 93%;
+    --muted: 224 24% 17%;
+    --muted-foreground: 220 12% 64%;
+    --accent: 224 24% 18%;
+    --accent-foreground: 220 25% 93%;
+    --border: 224 22% 20%;
+    --input: 224 22% 24%;
+    --ring: 228 85% 70%;
+
+    --success: 152 55% 50%;
+    --success-foreground: 224 35% 9%;
+    --destructive: 358 80% 66%;
+    --destructive-foreground: 224 35% 9%;
+    --warning: 38 78% 60%;
+    --warning-foreground: 224 35% 9%;
+    --neutral: 220 12% 64%;
+    --neutral-foreground: 224 35% 9%;
+
+    --chart-1: 152 55% 50%;
+    --chart-2: 358 80% 66%;
+    --chart-3: 38 78% 60%;
+    --chart-4: 220 12% 55%;
+    --chart-5: 228 85% 70%;
   }
 }
 
 @layer base {
-  html {
-    font-size: 17px;
-  }
   * {
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
 }
 
@@ -94,19 +104,40 @@
   .border-warning { border-color: hsl(var(--warning)); }
   .border-neutral-fg { border-color: hsl(var(--neutral)); }
 
-  .animate-fade-in {
-    animation: fadeIn 0.4s ease-out;
+  /* Highlighter marks: a soft band behind the lower part of the text */
+  .mark-true,
+  .mark-false,
+  .mark-unclear,
+  .mark-pending {
+    background-repeat: no-repeat;
+    background-position: 0 88%;
+    background-size: 100% 0.5em;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
   }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+  .mark-true { background-image: linear-gradient(hsl(var(--success) / 0.32), hsl(var(--success) / 0.32)); }
+  .mark-false { background-image: linear-gradient(hsl(var(--destructive) / 0.32), hsl(var(--destructive) / 0.32)); }
+  .mark-unclear { background-image: linear-gradient(hsl(var(--warning) / 0.34), hsl(var(--warning) / 0.34)); }
+  .mark-pending { background-image: linear-gradient(hsl(var(--primary) / 0.18), hsl(var(--primary) / 0.18)); }
+
+  /* The home page's one animated moment: marks sweep in left to right */
+  .mark-sweep {
+    background-size: 0% 0.5em;
+    animation: mark-sweep 0.9s cubic-bezier(0.65, 0, 0.35, 1) forwards;
   }
-  .animate-pulse-slow {
-    animation: pulseSlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  @keyframes mark-sweep {
+    to { background-size: 100% 0.5em; }
   }
-  @keyframes pulseSlow {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
+  .fade-late {
+    opacity: 0;
+    animation: fade-late 0.4s ease-out forwards;
+  }
+  @keyframes fade-late {
+    to { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mark-sweep { animation: none; background-size: 100% 0.5em; }
+    .fade-late { animation: none; opacity: 1; }
   }
 }
 

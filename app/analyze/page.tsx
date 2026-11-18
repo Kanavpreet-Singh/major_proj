@@ -1,123 +1,150 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { LiveAnalysis } from '@/components/live-analysis';
 import { useAnalysisStream } from '@/lib/use-analysis-stream';
-import { ScanSearch, Upload, Link as LinkIcon, Loader2, ImageIcon, FileText, Type, X, FileCheck } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { FileText, ImageIcon, Loader2, X } from 'lucide-react';
+
+type Mode = 'text' | 'pdf' | 'image-text';
+
+const MODES: { value: Mode; label: string }[] = [
+  { value: 'text', label: 'Text' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'image-text', label: 'Image' },
+];
+
+const LANGUAGES = [
+  { value: 'auto', label: 'Auto language' },
+  { value: 'en', label: 'English' },
+  { value: 'hi', label: 'Hindi' },
+  { value: 'ur', label: 'Urdu' },
+  { value: 'zh', label: 'Chinese' },
+];
+
+/** File picker with drag and drop; shows the chosen file with a remove button. */
+function Dropzone({
+  accept,
+  icon: Icon,
+  label,
+  file,
+  preview,
+  onFile,
+  onClear,
+}: {
+  accept: string;
+  icon: typeof FileText;
+  label: string;
+  file: string;
+  preview?: string;
+  onFile: (f: File) => void;
+  onClear: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  if (file) {
+    return (
+      <div className="flex items-center gap-4 rounded-xl border bg-card p-3">
+        {preview ? (
+          <img src={preview} alt="" className="h-16 w-16 rounded-lg object-cover" />
+        ) : (
+          <span className="flex h-16 w-16 items-center justify-center rounded-lg bg-muted">
+            <Icon className="h-6 w-6 text-muted-foreground" />
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate text-sm">{file}</span>
+        <Button type="button" variant="ghost" size="icon" onClick={onClear} aria-label="Remove file">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <input
+        ref={ref}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = '';
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => ref.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          e.preventDefault();
+          const f = e.dataTransfer.files?.[0];
+          if (f) onFile(f);
+        }}
+        className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-input bg-card px-6 py-10 text-sm text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
+      >
+        <Icon className="h-6 w-6" />
+        {label}
+      </button>
+    </>
+  );
+}
+
+function readFile(file: File, done: (dataUrl: string) => void) {
+  const reader = new FileReader();
+  reader.onload = () => done(reader.result as string);
+  reader.onerror = () => toast.error('Could not read that file.');
+  reader.readAsDataURL(file);
+}
 
 export default function AnalyzePage() {
   const router = useRouter();
-
-  // --- Shared ---
-  const [language, setLanguage] = useState('auto');
-  const [loading, setLoading] = useState(false);
-  const [analysisType, setAnalysisType] = useState<'text' | 'pdf' | 'image-text'>('image-text');
+  const params = useSearchParams();
   const live = useAnalysisStream();
 
-  // --- Text tab ---
-  const [textContent, setTextContent] = useState('');
+  const [mode, setMode] = useState<Mode>('text');
+  const [language, setLanguage] = useState('auto');
+  const [loading, setLoading] = useState(false);
 
-  // --- PDF tab ---
-  const [pdfUrl, setPdfUrl] = useState('');
-  const [uploadedPdfUrl, setUploadedPdfUrl] = useState('');
-  const [uploadedPdfName, setUploadedPdfName] = useState('');
-  const [pdfClaim, setPdfClaim] = useState('');
-  const [pdfSubTab, setPdfSubTab] = useState('upload');
-  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState('');
+  const [pdf, setPdf] = useState({ data: '', name: '', url: '', claim: '' });
+  const [image, setImage] = useState({ data: '', name: '', url: '', claim: '' });
+  const [useLink, setUseLink] = useState(false);
 
-  // --- Image+Text tab ---
-  const [imageUrl, setImageUrl] = useState('');
-  const [uploadedImageUrl, setUploadedImageUrl] = useState('');
-  const [uploadedImageName, setUploadedImageName] = useState('');
-  const [imageClaim, setImageClaim] = useState('');
-  const [imageSubTab, setImageSubTab] = useState('upload');
-  const imageInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const m = params.get('mode');
+    if (m === 'text' || m === 'pdf' || m === 'image-text') setMode(m);
+  }, [params]);
 
-  const effectiveImageUrl = imageSubTab === 'upload' ? uploadedImageUrl : imageUrl;
-  const effectivePdfUrl = pdfSubTab === 'upload' ? uploadedPdfUrl : pdfUrl;
+  const pdfSource = useLink ? pdf.url.trim() : pdf.data;
+  const imageSource = useLink ? image.url.trim() : image.data;
 
-  // Handle local image file upload with instant base64 preview
-  function handleImageFile(file: File) {
-    if (!file.type.startsWith('image/')) {
-      toast.error('Please select an image file (PNG, JPG, WebP).');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error('File size must be under 10MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setUploadedImageUrl(result);
-      setUploadedImageName(file.name);
-      toast.success(`Image "${file.name}" loaded successfully!`);
-    };
-    reader.onerror = () => {
-      toast.error('Failed to read image file.');
-    };
-    reader.readAsDataURL(file);
-  }
-
-  // Handle local PDF file upload
-  function handlePdfFile(file: File) {
-    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
-      toast.error('Please select a valid PDF file.');
-      return;
-    }
-    if (file.size > 15 * 1024 * 1024) {
-      toast.error('PDF file size must be under 15MB.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setUploadedPdfUrl(result);
-      setUploadedPdfName(file.name);
-      toast.success(`PDF "${file.name}" loaded successfully!`);
-    };
-    reader.onerror = () => {
-      toast.error('Failed to read PDF file.');
-    };
-    reader.readAsDataURL(file);
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-
-    if (analysisType === 'text') {
-      if (!textContent.trim()) { toast.error('Please enter text to analyze.'); return; }
-    } else if (analysisType === 'pdf') {
-      if (!effectivePdfUrl) { toast.error('Please provide a PDF URL or upload a PDF document.'); return; }
+    let payload: { imageUrl: string; claim: string; language: string; type: Mode };
+    if (mode === 'text') {
+      if (!text.trim()) return toast.error('Enter a claim to check.');
+      payload = { imageUrl: 'text-only', claim: text.trim(), language, type: 'text' };
+    } else if (mode === 'pdf') {
+      if (!pdfSource) return toast.error(useLink ? 'Enter a link to a PDF.' : 'Choose a PDF.');
+      payload = {
+        imageUrl: pdfSource,
+        claim: pdf.claim.trim() || 'Analyze this document for misinformation.',
+        language,
+        type: 'pdf',
+      };
     } else {
-      if (!effectiveImageUrl) { toast.error('Please provide an image URL or upload an image.'); return; }
-      if (!imageClaim.trim()) { toast.error('Please enter a claim to verify.'); return; }
+      if (!imageSource) return toast.error(useLink ? 'Enter a link to an image.' : 'Choose an image.');
+      if (!image.claim.trim()) return toast.error('Enter the claim made about the image.');
+      payload = { imageUrl: imageSource, claim: image.claim.trim(), language, type: 'image-text' };
     }
 
-    const payload =
-      analysisType === 'text'
-        ? { imageUrl: 'text-only', claim: textContent.trim(), language, type: 'text' }
-        : analysisType === 'pdf'
-        ? { imageUrl: effectivePdfUrl, claim: pdfClaim.trim() || 'Analyze this document for misinformation.', language, type: 'pdf' }
-        : { imageUrl: effectiveImageUrl, claim: imageClaim.trim(), language, type: 'image-text' };
-
-    // Text and PDF go through the multi-agent debate: stream it live
-    if (analysisType !== 'image-text') {
+    // Text and PDF go through the agent debate, streamed live
+    if (mode !== 'image-text') {
       window.scrollTo({ top: 0, behavior: 'smooth' });
       live.start(payload);
       return;
@@ -131,342 +158,152 @@ export default function AnalyzePage() {
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Analysis failed');
+      if (!res.ok) throw new Error(data.error || 'The check failed.');
       router.push(`/analysis/${data.id}`);
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Something went wrong');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'The check failed.');
     } finally {
       setLoading(false);
     }
   }
 
-  const LanguageCard = () => (
-    <Card>
-      <CardHeader><CardTitle className="text-base">Language</CardTitle></CardHeader>
-      <CardContent>
-        <Select value={language} onValueChange={setLanguage}>
-          <SelectTrigger><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="auto">Auto-detect</SelectItem>
-            <SelectItem value="en">English</SelectItem>
-            <SelectItem value="hi">Hindi</SelectItem>
-            <SelectItem value="ur">Urdu</SelectItem>
-            <SelectItem value="zh">Chinese</SelectItem>
-          </SelectContent>
-        </Select>
-      </CardContent>
-    </Card>
-  );
-
   if (live.state.status !== 'idle') {
     return (
-      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
         <LiveAnalysis state={live.state} onCancel={live.cancel} onReset={live.reset} />
       </div>
     );
   }
 
+  const linkToggle = (
+    <button type="button" className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline" onClick={() => setUseLink((v) => !v)}>
+      {useLink ? 'Upload a file instead' : 'Use a link instead'}
+    </button>
+  );
+
   return (
-    <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8">
-      <div className="mb-10">
-        <h1 className="text-3xl font-bold tracking-tight">Analyze Content</h1>
-        <p className="mt-2 text-muted-foreground">
-          Choose an input type — plain text, a PDF document, or an image with a claim — and let VeriLens detect misinformation.
-        </p>
+    <div className="mx-auto max-w-2xl px-4 py-14 sm:px-6">
+      <h1 className="font-serif text-4xl font-medium tracking-tight sm:text-5xl">Check a claim</h1>
+
+      <div role="tablist" aria-label="Input type" className="mt-8 flex gap-6 border-b">
+        {MODES.map((m) => (
+          <button
+            key={m.value}
+            role="tab"
+            aria-selected={mode === m.value}
+            onClick={() => {
+              setMode(m.value);
+              setUseLink(false);
+            }}
+            className={cn(
+              '-mb-px border-b-2 pb-3 text-sm transition-colors',
+              mode === m.value ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
 
-      {/* Top-level analysis type tabs */}
-      <Tabs value={analysisType} onValueChange={(v) => setAnalysisType(v as typeof analysisType)} className="mb-8">
-        <TabsList className="w-full grid grid-cols-3 h-12 mb-6">
-          <TabsTrigger value="image-text" className="gap-2 text-sm">
-            <ImageIcon className="h-4 w-4" />
-            Image + Text
-          </TabsTrigger>
-          <TabsTrigger value="text" className="gap-2 text-sm">
-            <Type className="h-4 w-4" />
-            Text
-          </TabsTrigger>
-          <TabsTrigger value="pdf" className="gap-2 text-sm">
-            <FileText className="h-4 w-4" />
-            PDF
-          </TabsTrigger>
-        </TabsList>
+      <form onSubmit={submit} className="mt-8 space-y-5">
+        {mode === 'text' && (
+          <textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={2000}
+            rows={5}
+            placeholder="Type or paste a claim"
+            className="w-full resize-none rounded-xl border border-input bg-card px-5 py-4 font-serif text-xl leading-relaxed placeholder:text-muted-foreground/70 focus-visible:border-primary/60 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          />
+        )}
 
-        {/* ── IMAGE + TEXT ── */}
-        <TabsContent value="image-text">
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-8 lg:grid-cols-5">
-              <div className="lg:col-span-3 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Image Source</CardTitle>
-                    <CardDescription>Upload an image or provide a URL</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Tabs value={imageSubTab} onValueChange={setImageSubTab}>
-                      <TabsList className="mb-4 w-full">
-                        <TabsTrigger value="upload" className="flex-1 gap-2"><Upload className="h-4 w-4" />Upload</TabsTrigger>
-                        <TabsTrigger value="url" className="flex-1 gap-2"><LinkIcon className="h-4 w-4" />URL</TabsTrigger>
-                      </TabsList>
+        {mode === 'pdf' && (
+          <>
+            {useLink ? (
+              <Input type="url" placeholder="https://example.com/report.pdf" value={pdf.url} onChange={(e) => setPdf({ ...pdf, url: e.target.value })} />
+            ) : (
+              <Dropzone
+                accept=".pdf,application/pdf"
+                icon={FileText}
+                label="Choose a PDF or drop it here"
+                file={pdf.name}
+                onClear={() => setPdf({ ...pdf, data: '', name: '' })}
+                onFile={(f) => {
+                  if (!f.name.toLowerCase().endsWith('.pdf')) return toast.error('Choose a PDF file.');
+                  if (f.size > 15 * 1024 * 1024) return toast.error('PDFs must be under 15 MB.');
+                  readFile(f, (data) => setPdf((p) => ({ ...p, data, name: f.name })));
+                }}
+              />
+            )}
+            {linkToggle}
+            <Input
+              placeholder="Claim to check in the document (optional)"
+              value={pdf.claim}
+              maxLength={500}
+              onChange={(e) => setPdf({ ...pdf, claim: e.target.value })}
+            />
+          </>
+        )}
 
-                      <TabsContent value="upload">
-                        {uploadedImageUrl ? (
-                          <div className="space-y-3">
-                            <div className="relative overflow-hidden rounded-lg border border-border bg-muted/20 flex flex-col items-center p-3">
-                              <img src={uploadedImageUrl} alt="Uploaded preview" className="max-h-72 w-full object-contain rounded-md" />
-                              <div className="mt-2 flex w-full items-center justify-between px-1">
-                                <span className="text-xs text-muted-foreground truncate max-w-[220px]">{uploadedImageName || 'Uploaded image'}</span>
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="sm"
-                                  className="h-8 gap-1 text-xs"
-                                  onClick={() => { setUploadedImageUrl(''); setUploadedImageName(''); }}
-                                >
-                                  <X className="h-3.5 w-3.5" /> Remove
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            <input
-                              type="file"
-                              ref={imageInputRef}
-                              accept="image/*"
-                              className="hidden"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) handleImageFile(f);
-                              }}
-                            />
-                            <div
-                              onClick={() => imageInputRef.current?.click()}
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const f = e.dataTransfer.files?.[0];
-                                if (f) handleImageFile(f);
-                              }}
-                              className="flex flex-col items-center justify-center border-2 border-dashed border-border/80 hover:border-primary/60 rounded-xl p-8 cursor-pointer transition-colors bg-muted/20 hover:bg-muted/40 text-center"
-                            >
-                              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                <Upload className="h-7 w-7" />
-                              </div>
-                              <p className="font-medium text-sm">Click to choose an image or drag & drop</p>
-                              <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WebP up to 10MB</p>
-                            </div>
-                          </div>
-                        )}
-                      </TabsContent>
+        {mode === 'image-text' && (
+          <>
+            {useLink ? (
+              <>
+                <Input type="url" placeholder="https://example.com/photo.jpg" value={image.url} onChange={(e) => setImage({ ...image, url: e.target.value })} />
+                {image.url && <img src={image.url} alt="" className="max-h-64 rounded-xl border object-contain" />}
+              </>
+            ) : (
+              <Dropzone
+                accept="image/*"
+                icon={ImageIcon}
+                label="Choose an image or drop it here"
+                file={image.name}
+                preview={image.data}
+                onClear={() => setImage({ ...image, data: '', name: '' })}
+                onFile={(f) => {
+                  if (!f.type.startsWith('image/')) return toast.error('Choose an image file.');
+                  if (f.size > 10 * 1024 * 1024) return toast.error('Images must be under 10 MB.');
+                  readFile(f, (data) => setImage((p) => ({ ...p, data, name: f.name })));
+                }}
+              />
+            )}
+            {linkToggle}
+            <textarea
+              value={image.claim}
+              onChange={(e) => setImage({ ...image, claim: e.target.value })}
+              maxLength={500}
+              rows={3}
+              placeholder="What does the post claim this image shows?"
+              className="w-full resize-none rounded-xl border border-input bg-card px-4 py-3 font-serif text-lg leading-relaxed placeholder:text-muted-foreground/70 focus-visible:border-primary/60 focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+            />
+          </>
+        )}
 
-                      <TabsContent value="url">
-                        <div className="space-y-2">
-                          <Label htmlFor="imageUrl">Image URL</Label>
-                          <Input id="imageUrl" type="url" placeholder="https://example.com/image.jpg" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
-                          {imageUrl && (
-                            <div className="mt-3 overflow-hidden rounded-lg border border-border">
-                              <img src={imageUrl} alt="Preview" className="max-h-60 w-full object-contain" />
-                            </div>
-                          )}
-                        </div>
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Claim to Verify</CardTitle>
-                    <CardDescription>The statement you want to fact-check against the image</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Textarea placeholder="e.g. This image shows flooding in New York City in 2024…" value={imageClaim} onChange={(e) => setImageClaim(e.target.value)} maxLength={500} rows={4} />
-                    <p className="text-right text-xs text-muted-foreground">{imageClaim.length}/500</p>
-                  </CardContent>
-                </Card>
-                <LanguageCard />
-                <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                  {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Analyzing with CLIP…</> : <><ScanSearch className="h-5 w-5" /> Analyze Now</>}
-                </Button>
-              </div>
-
-              <div className="lg:col-span-2 space-y-4">
-                <Card className="border-border/60">
-                  <CardContent className="pt-6">
-                    <h3 className="mb-4 font-semibold">Tips for best results</h3>
-                    <ul className="space-y-3 text-sm text-muted-foreground">
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">1</span>Upload or paste an image (JPG, PNG, WebP)</li>
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">2</span>Write the claim as it appears in the viral post</li>
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">3</span>Include location and time if present in the claim</li>
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">4</span>Trained CLIP classifier will compute multimodal consistency</li>
-                    </ul>
-                  </CardContent>
-                </Card>
-                <Card className="border-border/60 bg-muted/40">
-                  <CardContent className="pt-6">
-                    <div className="flex items-center gap-2 mb-2">
-                      <ImageIcon className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Trained Model Active</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Using your trained CLIP (ViT-B/32) classifier from clip_artifacts to verify image-text consistency.</p>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </form>
-        </TabsContent>
-
-        {/* ── TEXT ── */}
-        <TabsContent value="text">
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-8 lg:grid-cols-5">
-              <div className="lg:col-span-3 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Text to Analyze</CardTitle>
-                    <CardDescription>Paste a news article, social media post, or any textual claim you want fact-checked.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Textarea
-                      placeholder="e.g. A new study proves that 5G towers cause respiratory illness…"
-                      value={textContent}
-                      onChange={(e) => setTextContent(e.target.value)}
-                      maxLength={2000}
-                      rows={8}
-                    />
-                    <p className="text-right text-xs text-muted-foreground">{textContent.length}/2000</p>
-                  </CardContent>
-                </Card>
-                <LanguageCard />
-                <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                  {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Analyzing…</> : <><ScanSearch className="h-5 w-5" /> Analyze Text</>}
-                </Button>
-              </div>
-              <div className="lg:col-span-2 space-y-4">
-                <Card className="border-border/60">
-                  <CardContent className="pt-6">
-                    <h3 className="mb-4 font-semibold">Tips for best results</h3>
-                    <ul className="space-y-3 text-sm text-muted-foreground">
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">1</span>Paste the full article or post for context</li>
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">2</span>Include headlines and subheadings</li>
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">3</span>Select the correct language for better evidence retrieval</li>
-                    </ul>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </form>
-        </TabsContent>
-
-        {/* ── PDF ── */}
-        <TabsContent value="pdf">
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-8 lg:grid-cols-5">
-              <div className="lg:col-span-3 space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">PDF Source</CardTitle>
-                    <CardDescription>Upload a PDF document or provide a link</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Tabs value={pdfSubTab} onValueChange={setPdfSubTab}>
-                      <TabsList className="mb-4 w-full">
-                        <TabsTrigger value="upload" className="flex-1 gap-2"><Upload className="h-4 w-4" />Upload PDF</TabsTrigger>
-                        <TabsTrigger value="url" className="flex-1 gap-2"><LinkIcon className="h-4 w-4" />PDF URL</TabsTrigger>
-                      </TabsList>
-                      <TabsContent value="upload">
-                        {uploadedPdfUrl ? (
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between rounded-lg border border-border p-4 bg-muted/30">
-                              <div className="flex items-center gap-3 min-w-0">
-                                <FileCheck className="h-8 w-8 text-primary shrink-0" />
-                                <div className="min-w-0">
-                                  <p className="text-sm font-medium truncate">{uploadedPdfName || 'document.pdf'}</p>
-                                  <p className="text-xs text-muted-foreground">PDF Document Ready</p>
-                                </div>
-                              </div>
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="sm"
-                                className="gap-1 text-xs"
-                                onClick={() => { setUploadedPdfUrl(''); setUploadedPdfName(''); }}
-                              >
-                                <X className="h-3.5 w-3.5" /> Remove
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div>
-                            <input
-                              type="file"
-                              ref={pdfInputRef}
-                              accept=".pdf,application/pdf"
-                              className="hidden"
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                if (f) handlePdfFile(f);
-                              }}
-                            />
-                            <div
-                              onClick={() => pdfInputRef.current?.click()}
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                const f = e.dataTransfer.files?.[0];
-                                if (f) handlePdfFile(f);
-                              }}
-                              className="flex flex-col items-center justify-center border-2 border-dashed border-border/80 hover:border-primary/60 rounded-xl p-8 cursor-pointer transition-colors bg-muted/20 hover:bg-muted/40 text-center"
-                            >
-                              <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                <FileText className="h-7 w-7" />
-                              </div>
-                              <p className="font-medium text-sm">Click to choose a PDF or drag & drop</p>
-                              <p className="text-xs text-muted-foreground mt-1">PDF documents up to 15MB</p>
-                            </div>
-                          </div>
-                        )}
-                      </TabsContent>
-                      <TabsContent value="url">
-                        <div className="space-y-2">
-                          <Label htmlFor="pdfUrl">PDF URL</Label>
-                          <Input id="pdfUrl" type="url" placeholder="https://example.com/document.pdf" value={pdfUrl} onChange={(e) => setPdfUrl(e.target.value)} />
-                        </div>
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">Claim to Verify (optional)</CardTitle>
-                    <CardDescription>Optionally specify a claim to check within the document.</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    <Textarea placeholder="e.g. This report claims vaccines cause autism…" value={pdfClaim} onChange={(e) => setPdfClaim(e.target.value)} maxLength={500} rows={3} />
-                    <p className="text-right text-xs text-muted-foreground">{pdfClaim.length}/500</p>
-                  </CardContent>
-                </Card>
-                <LanguageCard />
-                <Button type="submit" size="lg" className="w-full gap-2" disabled={loading}>
-                  {loading ? <><Loader2 className="h-5 w-5 animate-spin" /> Analyzing…</> : <><ScanSearch className="h-5 w-5" /> Analyze PDF</>}
-                </Button>
-              </div>
-              <div className="lg:col-span-2 space-y-4">
-                <Card className="border-border/60">
-                  <CardContent className="pt-6">
-                    <h3 className="mb-4 font-semibold">Tips for best results</h3>
-                    <ul className="space-y-3 text-sm text-muted-foreground">
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">1</span>Upload a text-based PDF report</li>
-                      <li className="flex gap-2"><span className="mt-0.5 h-5 w-5 shrink-0 rounded-full bg-primary/20 text-center text-xs leading-5 text-primary font-bold">2</span>Add a specific claim to check against the document</li>
-                    </ul>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          </form>
-        </TabsContent>
-      </Tabs>
+        <div className="flex items-center justify-between gap-3 pt-2">
+          <Select value={language} onValueChange={setLanguage}>
+            <SelectTrigger className="h-10 w-40 border-transparent bg-transparent px-2 text-muted-foreground shadow-none hover:text-foreground" aria-label="Language">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LANGUAGES.map((l) => (
+                <SelectItem key={l.value} value={l.value}>
+                  {l.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button type="submit" size="lg" className="h-11 px-8" disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Checking
+              </>
+            ) : (
+              'Check'
+            )}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -9,7 +9,7 @@ import { XRayView } from '@/components/xray-view';
 import { formatDate } from '@/lib/format';
 import type { XRayRecord } from '@/lib/validations';
 import type { LiveClaim } from '@/lib/use-xray-stream';
-import { ArrowLeft, ScanLine } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 
 export default function XRayReportPage() {
   const { id } = useParams<{ id: string }>();
@@ -26,7 +26,7 @@ export default function XRayReportPage() {
   if (missing) {
     return (
       <div className="mx-auto max-w-xl px-4 py-24 text-center">
-        <p className="mb-4 text-muted-foreground">This scan could not be found.</p>
+        <p className="mb-6 font-serif text-2xl">This scan no longer exists.</p>
         <Button asChild>
           <Link href="/xray">Scan an article</Link>
         </Button>
@@ -35,29 +35,17 @@ export default function XRayReportPage() {
   }
   if (!record) {
     return (
-      <div className="mx-auto max-w-7xl space-y-6 px-4 py-10 sm:px-6 lg:px-8">
-        <Skeleton className="h-32 w-full rounded-2xl" />
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
+      <div className="mx-auto max-w-6xl space-y-6 px-4 py-10 sm:px-6">
+        <Skeleton className="h-12 w-2/3" />
+        <Skeleton className="h-16 w-48" />
+        <Skeleton className="h-96 w-full" />
       </div>
     );
   }
 
   const claims: LiveClaim[] = record.claims.map((c) => ({ ...c, status: 'done' }));
   return (
-    <div className="mx-auto max-w-7xl space-y-4 px-4 py-10 sm:px-6 lg:px-8">
-      <div className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm" className="gap-2">
-          <Link href="/xray">
-            <ArrowLeft className="h-4 w-4" /> Article X-Ray
-          </Link>
-        </Button>
-        <Button asChild size="sm" className="gap-2">
-          <Link href="/xray">
-            <ScanLine className="h-4 w-4" /> New scan
-          </Link>
-        </Button>
-      </div>
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
       <XRayView
         article={{ title: record.title, url: record.url, text: record.text, truncated: record.truncated }}
         claims={claims}
@@ -65,9 +53,12 @@ export default function XRayReportPage() {
         running={false}
         stages={{ fetch: 'done', extract: 'done', check: 'done' }}
         headerExtra={
-          <span className="text-xs text-muted-foreground">
-            Scanned {formatDate(record.createdAt)} · {Math.round(record.latencyMs / 1000)}s
-          </span>
+          <>
+            <Link href="/xray" className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+              <ArrowLeft className="h-4 w-4" /> Article X-Ray
+            </Link>
+            <span className="text-muted-foreground">{formatDate(record.createdAt)}</span>
+          </>
         }
       />
     </div>

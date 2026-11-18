@@ -4,32 +4,29 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { VerdictBadge } from '@/components/verdict-badge';
-import { ConfidenceGauge } from '@/components/confidence-gauge';
-import { SignalBar } from '@/components/signal-bar';
+import { VerdictBadge, verdictMap } from '@/components/verdict-badge';
 import { DebatePanel } from '@/components/debate-panel';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { faviconUrl, formatDate, languageLabel } from '@/lib/format';
+import { faviconUrl, formatDate, inputKind } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { AnalysisRecord } from '@/lib/types';
-import {
-  ArrowLeft,
-  ScanSearch,
-  Clock,
-  Globe,
-  AlertTriangle,
-  ExternalLink,
-  CheckCircle2,
-  XCircle,
-  HelpCircle,
-  Sparkles,
-  Zap,
-  Layers,
-  FileImage,
-} from 'lucide-react';
+import { ArrowLeft, FileText } from 'lucide-react';
+
+const STANCE_COLOR: Record<string, string> = {
+  Supports: 'text-success',
+  Refutes: 'text-destructive',
+  Neutral: 'text-muted-foreground',
+};
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <div>
+      <div className="font-serif text-3xl tabular-nums">{Math.round(value * 100)}%</div>
+      <div className="text-sm text-muted-foreground">{label}</div>
+    </div>
+  );
+}
 
 export default function AnalysisPage() {
   const { id } = useParams<{ id: string }>();
@@ -42,408 +39,103 @@ export default function AnalysisPage() {
       .then((r) => r.json())
       .then((data) => {
         if (data.error) {
-          toast.error('Analysis not found');
+          toast.error('That check was not found.');
           router.push('/history');
         } else {
           setAnalysis(data);
         }
       })
-      .catch(() => toast.error('Failed to load analysis'))
+      .catch(() => toast.error('Could not load this check.'))
       .finally(() => setLoading(false));
   }, [id, router]);
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-12 sm:px-6 lg:px-8 space-y-6">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full rounded-2xl" />
-        <div className="grid gap-6 md:grid-cols-2">
-          <Skeleton className="h-52 w-full rounded-2xl" />
-          <Skeleton className="h-52 w-full rounded-2xl" />
-        </div>
+      <div className="mx-auto max-w-3xl space-y-6 px-4 py-14 sm:px-6">
+        <Skeleton className="h-6 w-24" />
+        <Skeleton className="h-28 w-full" />
+        <Skeleton className="h-40 w-full" />
       </div>
     );
   }
-
   if (!analysis) return null;
 
-  const stanceColor: Record<string, string> = {
-    Supports: 'bg-success/15 text-success border-success/30',
-    Refutes: 'bg-destructive/15 text-destructive border-destructive/30',
-    Neutral: 'bg-muted text-muted-foreground border-border',
-  };
-
-  const credColor: Record<string, string> = {
-    High: 'bg-success/15 text-success border-success/30',
-    Medium: 'bg-warning/15 text-warning border-warning/30',
-    Low: 'bg-destructive/15 text-destructive border-destructive/30',
-  };
-
-  const verdictThemes = {
-    True: {
-      title: 'REAL / AUTHENTIC',
-      subtext: 'Multimodal signals and visual evidence verify this claim as authentic.',
-      icon: CheckCircle2,
-      bannerBg: 'bg-emerald-500/10 border-emerald-500/25 dark:bg-emerald-500/15',
-      iconBox: 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
-      titleColor: 'text-emerald-700 dark:text-emerald-400',
-      accentBorder: 'border-emerald-500/40',
-      glow: 'shadow-emerald-500/10',
-    },
-    False: {
-      title: 'FAKE / MISINFORMATION',
-      subtext: 'Visual features and claim context show strong inconsistency or fabricated claims.',
-      icon: XCircle,
-      bannerBg: 'bg-rose-500/10 border-rose-500/25 dark:bg-rose-500/15',
-      iconBox: 'bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30',
-      titleColor: 'text-rose-700 dark:text-rose-400',
-      accentBorder: 'border-rose-500/40',
-      glow: 'shadow-rose-500/10',
-    },
-    Misleading: {
-      title: 'MISLEADING / OUT OF CONTEXT',
-      subtext: 'Partial semantic alignment detected. High probability of out-of-context media usage.',
-      icon: AlertTriangle,
-      bannerBg: 'bg-amber-500/10 border-amber-500/25 dark:bg-amber-500/15',
-      iconBox: 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/30',
-      titleColor: 'text-amber-700 dark:text-amber-400',
-      accentBorder: 'border-amber-500/40',
-      glow: 'shadow-amber-500/10',
-    },
-    Unverifiable: {
-      title: 'UNVERIFIABLE',
-      subtext: 'Insufficient multimodal signals to reach a definitive verdict.',
-      icon: HelpCircle,
-      bannerBg: 'bg-muted border-border',
-      iconBox: 'bg-muted text-muted-foreground border-border',
-      titleColor: 'text-foreground',
-      accentBorder: 'border-border',
-      glow: '',
-    },
-  }[analysis.label] || {
-    title: analysis.label,
-    subtext: 'Verification result generated by model.',
-    icon: HelpCircle,
-    bannerBg: 'bg-muted border-border',
-    iconBox: 'bg-muted text-muted-foreground border-border',
-    titleColor: 'text-foreground',
-    accentBorder: 'border-border',
-    glow: '',
-  };
-
-  const VerdictIcon = verdictThemes.icon;
-  const isPdf = analysis.imageUrl.toLowerCase().includes('pdf');
-  const isImageMode = analysis.imageUrl !== 'text-only' && !isPdf;
-  const clipScorePct = Math.round(analysis.clipScore * 100);
-
-  const similarityRating =
-    clipScorePct >= 70
-      ? {
-          badge: 'Strong Semantic Match',
-          desc: 'Image visuals closely match and support the claim semantics.',
-          color: 'text-emerald-600 dark:text-emerald-400',
-          badgeClass: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
-        }
-      : clipScorePct >= 45
-      ? {
-          badge: 'Partial / Borderline Alignment',
-          desc: 'Loose contextual match. Risk of authentic media repurposed for false claim.',
-          color: 'text-amber-600 dark:text-amber-400',
-          badgeClass: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30',
-        }
-      : {
-          badge: 'Low Alignment / Mismatch',
-          desc: 'Visual features show little or contradictory correlation with the claim.',
-          color: 'text-rose-600 dark:text-rose-400',
-          badgeClass: 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30',
-        };
+  const kind = inputKind(analysis.imageUrl);
+  const isPdf = kind === 'pdf';
+  const isImage = kind === 'image';
+  const mark = verdictMap[analysis.label]?.mark ?? 'mark-pending';
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6 lg:px-8 space-y-6">
-      {/* Top Navigation */}
+    <article className="mx-auto max-w-3xl space-y-12 px-4 py-12 sm:px-6">
       <div className="flex items-center justify-between">
-        <Button asChild variant="ghost" size="sm" className="gap-2">
-          <Link href="/history">
-            <ArrowLeft className="h-4 w-4" />
-            History
-          </Link>
-        </Button>
-        <Button asChild size="sm" className="gap-2">
-          <Link href="/analyze">
-            <ScanSearch className="h-4 w-4" />
-            New Analysis
-          </Link>
+        <Link href="/history" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> History
+        </Link>
+        <Button asChild size="sm" variant="outline">
+          <Link href="/analyze">New check</Link>
         </Button>
       </div>
 
-      {/* ── HERO VERDICT CARD ── */}
-      <Card className={cn('overflow-hidden rounded-2xl border-2 transition-all shadow-md', verdictThemes.accentBorder, verdictThemes.glow)}>
-        {/* Banner with Verdict Heading */}
-        <div className={cn('flex flex-wrap items-center justify-between gap-4 border-b px-6 py-4', verdictThemes.bannerBg)}>
-          <div className="flex items-center gap-3">
-            <div className={cn('flex h-11 w-11 items-center justify-center rounded-xl border shadow-sm shrink-0', verdictThemes.iconBox)}>
-              <VerdictIcon className="h-6 w-6" />
-            </div>
-            <div>
-              <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                <span>Final Model Verdict</span>
-                <span className="text-muted-foreground/60">•</span>
-                <span className="font-medium lowercase text-muted-foreground">
-                  {analysis.imageUrl === 'text-only'
-                    ? analysis.verdictMode === 'debate'
-                      ? 'multi-agent debate verification'
-                      : 'multi-agent verification'
-                    : isPdf
-                    ? analysis.verdictMode === 'debate'
-                      ? 'pdf ocr + multi-agent debate'
-                      : 'pdf ocr + multi-agent pipeline'
-                    : 'clip vi-t + lr'}
-                </span>
-              </div>
-              <h1 className={cn('text-2xl sm:text-3xl font-black tracking-tight', verdictThemes.titleColor)}>
-                {verdictThemes.title}
-              </h1>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <VerdictBadge verdict={analysis.label} size="lg" showSublabel />
-          </div>
+      <header className="space-y-6">
+        <div className="flex gap-6">
+          {isImage && <img src={analysis.imageUrl} alt="" className="h-28 w-28 shrink-0 rounded-xl border object-cover sm:h-36 sm:w-36" />}
+          {isPdf && (
+            <span className="flex h-20 w-16 shrink-0 items-center justify-center rounded-lg border bg-card">
+              <FileText className="h-6 w-6 text-muted-foreground" />
+            </span>
+          )}
+          <h1 className="font-serif text-3xl font-medium leading-snug tracking-tight sm:text-4xl">
+            <span className={mark}>{analysis.claim}</span>
+          </h1>
         </div>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground">
+          <VerdictBadge verdict={analysis.label} size="lg" className="text-foreground" />
+          <span>{Math.round(analysis.confidence * 100)}% confidence</span>
+          <span>{formatDate(analysis.createdAt)}</span>
+        </div>
+      </header>
 
-        {/* Hero Card Body */}
-        <CardContent className="p-6">
-          <div className="grid gap-6 md:grid-cols-12 md:items-center">
-            {/* Media Preview (col-span-3) */}
-            <div className="md:col-span-3">
-              <div className="relative aspect-square w-full overflow-hidden rounded-xl border border-border bg-muted/40 flex items-center justify-center shadow-inner">
-                {analysis.imageUrl === 'text-only' ? (
-                  <div className="flex flex-col items-center gap-1.5 text-muted-foreground p-3 text-center">
-                    <FileImage className="h-8 w-8 stroke-1 opacity-70" />
-                    <span className="text-xs font-semibold">Text Analysis</span>
-                  </div>
-                ) : analysis.imageUrl.endsWith('.pdf') || analysis.imageUrl.includes('pdf') ? (
-                  <div className="flex flex-col items-center gap-1.5 text-muted-foreground p-3 text-center">
-                    <Layers className="h-8 w-8 stroke-1 opacity-70" />
-                    <span className="text-xs font-semibold">PDF Document</span>
-                  </div>
-                ) : (
-                  <img
-                    src={analysis.imageUrl}
-                    alt="Analyzed media"
-                    className="h-full w-full object-cover transition-transform hover:scale-105 duration-300"
-                  />
-                )}
-              </div>
-            </div>
-
-            {/* Claim details (col-span-5) */}
-            <div className="space-y-3 md:col-span-5">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Verified Statement
-              </div>
-              <blockquote className="text-base sm:text-lg font-medium leading-snug text-foreground border-l-2 border-primary/40 pl-3 italic">
-                &ldquo;{analysis.claim}&rdquo;
-              </blockquote>
-              <div className="flex flex-wrap gap-2 pt-1 text-xs text-muted-foreground">
-                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-medium">
-                  <Clock className="h-3 w-3" />
-                  {formatDate(analysis.createdAt)}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-medium">
-                  <Globe className="h-3 w-3" />
-                  {languageLabel(analysis.language)}
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-medium">
-                  <Zap className="h-3 w-3" />
-                  {analysis.latencyMs}ms
-                </span>
-              </div>
-            </div>
-
-            {/* Dual Circular Gauges (col-span-4) */}
-            <div className="flex items-center justify-around gap-4 border-t pt-4 md:border-t-0 md:border-l md:border-border/70 md:pl-6 md:pt-0 md:col-span-4">
-              <ConfidenceGauge
-                value={analysis.confidence}
-                label="Confidence"
-                sublabel="Model Certainty"
-                size="md"
-              />
-              {isImageMode ? (
-                <ConfidenceGauge
-                  value={analysis.clipScore}
-                  label="Similarity"
-                  sublabel="CLIP Visual Match"
-                  size="md"
-                />
-              ) : (
-                <ConfidenceGauge
-                  value={analysis.evidenceScore}
-                  label="Support"
-                  sublabel="P(claim supported)"
-                  size="md"
-                />
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── HIGHLIGHT METRICS SECTION: SIMILARITY & SIGNAL BREAKDOWN ── */}
-      <div className={cn('grid gap-6', isImageMode && 'md:grid-cols-2')}>
-        {/* Multimodal Similarity Spotlight Card */}
-        {isImageMode && (
-        <Card className="rounded-2xl border transition-shadow hover:shadow-sm">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-primary" />
-                Image–Text Similarity Score
-              </CardTitle>
-              <Badge variant="outline" className={cn('text-xs font-semibold border', similarityRating.badgeClass)}>
-                {similarityRating.badge}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-baseline justify-between border-b pb-3">
-              <div>
-                <span className="text-4xl font-extrabold tracking-tight tabular-nums">
-                  {clipScorePct}%
-                </span>
-                <span className="ml-2 text-xs text-muted-foreground tabular-nums">
-                  ({analysis.clipScore.toFixed(2)} / 1.00 cosine score)
-                </span>
-              </div>
-              <span className={cn('text-xs font-semibold', similarityRating.color)}>
-                {similarityRating.badge}
-              </span>
-            </div>
-
-            {/* Visual gradient bar */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Contradiction / Low</span>
-                <span>Neutral</span>
-                <span>Aligned / High</span>
-              </div>
-              <div className="h-3 w-full overflow-hidden rounded-full bg-muted/80 p-0.5">
-                <div
-                  className={cn(
-                    'h-full rounded-full transition-all duration-700 ease-out',
-                    clipScorePct >= 70 ? 'bg-success' : clipScorePct >= 45 ? 'bg-warning' : 'bg-destructive'
-                  )}
-                  style={{ width: `${clipScorePct}%` }}
-                />
-              </div>
-            </div>
-
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              {similarityRating.desc} Calculated by comparing image visual tokens with claim text tokens in CLIP&apos;s shared 512-dimensional vector space.
-            </p>
-          </CardContent>
-        </Card>
-        )}
-
-        {/* Signal Scores Breakdown */}
-        <Card className="rounded-2xl border transition-shadow hover:shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Layers className="h-4 w-4 text-primary" />
-              Multi-Signal Breakdown
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {isImageMode && (
-              <SignalBar
-                label="Visual Similarity (CLIP)"
-                value={analysis.clipScore}
-                subValue={`${analysis.clipScore.toFixed(2)} / 1.00`}
-                description="Image–claim visual embedding correspondence"
-              />
-            )}
-            <SignalBar
-              label="Evidence Alignment"
-              value={analysis.evidenceScore}
-              subValue={`${analysis.evidenceScore.toFixed(2)} / 1.00`}
-              description="Strength of corroborating fact-check evidence"
-            />
-            <SignalBar
-              label="Source Credibility"
-              value={analysis.credibilityScore}
-              subValue={`${analysis.credibilityScore.toFixed(2)} / 1.00`}
-              description="Reliability weight of cross-referenced domains"
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ── EXPLANATION & RATIONALE ── */}
-      <Card className="rounded-2xl border">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            AI Model Rationale & Analysis Summary
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm leading-relaxed text-muted-foreground bg-muted/30 rounded-xl p-4 border border-border/40">
-            {analysis.explanation}
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* ── AGENT DEBATE (text / PDF) ── */}
-      {analysis.debate && analysis.debate.length > 0 && (
-        <DebatePanel debate={analysis.debate} labelProbs={analysis.labelProbs} />
+      {isImage && (
+        <div className="grid grid-cols-3 gap-6 border-y py-6">
+          <Stat label="Image matches claim" value={analysis.clipScore} />
+          <Stat label="Evidence support" value={analysis.evidenceScore} />
+          <Stat label="Source credibility" value={analysis.credibilityScore} />
+        </div>
       )}
 
-      {/* ── FACT CHECK EVIDENCE SOURCES ── */}
+      {analysis.explanation && <p className="max-w-[68ch] text-lg leading-relaxed text-foreground/85">{analysis.explanation}</p>}
+
+      {analysis.debate && analysis.debate.length > 0 && <DebatePanel debate={analysis.debate} labelProbs={analysis.labelProbs} />}
+
       {analysis.evidence?.length > 0 && (
-        <Card className="rounded-2xl border">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold flex items-center justify-between">
-              <span>Evidence Sources ({analysis.evidence.length})</span>
-              <span className="text-xs font-normal text-muted-foreground">Cross-referenced databases</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
+        <section className="space-y-4">
+          <h2 className="font-serif text-2xl">Sources</h2>
+          <ul className="divide-y border-y">
             {analysis.evidence.map((item, i) => (
-              <div key={i} className="flex gap-4 rounded-xl border border-border/60 p-4 transition-colors hover:bg-muted/30">
+              <li key={i} className="flex gap-4 py-4">
                 <img
                   src={faviconUrl(item.domain)}
-                  alt={item.domain}
-                  className="h-8 w-8 shrink-0 rounded-lg shadow-sm"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
+                  alt=""
+                  className="mt-0.5 h-5 w-5 shrink-0 rounded"
+                  onError={(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')}
                 />
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold hover:underline text-sm flex items-center gap-1.5 text-foreground"
-                    >
+                <div className="min-w-0 flex-1 space-y-1">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <a href={item.url} target="_blank" rel="noopener noreferrer" className="truncate font-medium hover:underline">
                       {item.title}
-                      <ExternalLink className="h-3.5 w-3.5 opacity-70" />
                     </a>
+                    <span className={cn('shrink-0 text-sm', STANCE_COLOR[item.stance])}>{item.stance}</span>
                   </div>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{item.snippet}</p>
-                  <div className="flex gap-2 pt-1">
-                    <Badge variant="outline" className={cn('text-[11px] font-semibold border', stanceColor[item.stance])}>
-                      {item.stance}
-                    </Badge>
-                    <Badge variant="outline" className={cn('text-[11px] font-semibold border', credColor[item.credibility])}>
-                      {item.credibility} Credibility
-                    </Badge>
-                  </div>
+                  <p className="line-clamp-2 text-sm text-muted-foreground">{item.snippet}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.domain}, {item.credibility.toLowerCase()} credibility
+                  </p>
                 </div>
-              </div>
+              </li>
             ))}
-          </CardContent>
-        </Card>
+          </ul>
+        </section>
       )}
-    </div>
+    </article>
   );
 }

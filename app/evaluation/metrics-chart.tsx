@@ -1,101 +1,40 @@
-'use client';
+import { cn } from '@/lib/utils';
 
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  Cell,
-  Legend,
-} from 'recharts';
-
-const configurationData = [
-  {
-    name: 'Text-Only Baseline',
-    valF1: 76.2,
-    testAcc: 74.5,
-  },
-  {
-    name: 'Image-Only Baseline',
-    valF1: 72.4,
-    testAcc: 70.8,
-  },
-  {
-    name: 'Multimodal CLIP (Ours)',
-    valF1: 88.05,
-    testAcc: 86.0,
-  },
+const CONFIGS = [
+  { name: 'Text only', f1: 76.2, acc: 74.5 },
+  { name: 'Image only', f1: 72.4, acc: 70.8 },
+  { name: 'Image + text', f1: 88.05, acc: 86.0, ours: true },
 ];
 
+const MIN = 60; // bars start at 60% so differences are visible
+
+/** Validation F1 and test accuracy for each input configuration. */
 export function MetricsChart() {
   return (
-    <div className="space-y-3">
-      <ResponsiveContainer width="100%" height={260}>
-        <BarChart
-          data={configurationData}
-          margin={{ top: 15, right: 15, left: -15, bottom: 5 }}
-        >
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border/60" vertical={false} />
-          <XAxis
-            dataKey="name"
-            tick={{ fontSize: 12 }}
-            tickLine={false}
-            className="text-muted-foreground"
-          />
-          <YAxis
-            domain={[60, 100]}
-            tick={{ fontSize: 12 }}
-            tickLine={false}
-            tickFormatter={(v) => `${v}%`}
-            className="text-muted-foreground"
-          />
-          <Tooltip
-            formatter={(value: number) => [`${value.toFixed(2)}%`]}
-            contentStyle={{
-              backgroundColor: 'hsl(var(--card))',
-              borderColor: 'hsl(var(--border))',
-              borderRadius: '0.75rem',
-              fontSize: '12px',
-            }}
-          />
-          <Legend
-            wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}
-          />
-          <Bar
-            name="Validation F1-score"
-            dataKey="valF1"
-            radius={[6, 6, 0, 0]}
-            fill="hsl(var(--primary))"
-          >
-            {configurationData.map((entry, index) => (
-              <Cell
-                key={`cell-val-${index}`}
-                fill={index === 2 ? 'hsl(var(--success))' : 'hsl(var(--muted-foreground) / 0.5)'}
-              />
+    <div className="space-y-6">
+      {CONFIGS.map((c) => (
+        <div key={c.name} className="grid grid-cols-[7.5rem_1fr] items-center gap-4 sm:grid-cols-[9rem_1fr]">
+          <span className={cn('text-sm', c.ours ? 'font-medium text-foreground' : 'text-muted-foreground')}>{c.name}</span>
+          <div className="space-y-1.5">
+            {[
+              { v: c.f1, label: 'F1' },
+              { v: c.acc, label: 'Accuracy' },
+            ].map((m, i) => (
+              <div key={m.label} className="flex items-center gap-3">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn('h-full rounded-full', c.ours ? (i === 0 ? 'bg-primary' : 'bg-primary/50') : i === 0 ? 'bg-muted-foreground/50' : 'bg-muted-foreground/25')}
+                    style={{ width: `${((m.v - MIN) / (100 - MIN)) * 100}%` }}
+                  />
+                </div>
+                <span className="w-24 text-right text-xs tabular-nums text-muted-foreground">
+                  {m.label} {m.v.toFixed(1)}%
+                </span>
+              </div>
             ))}
-          </Bar>
-          <Bar
-            name="Test Accuracy"
-            dataKey="testAcc"
-            radius={[6, 6, 0, 0]}
-            fill="hsl(var(--primary) / 0.7)"
-          >
-            {configurationData.map((entry, index) => (
-              <Cell
-                key={`cell-test-${index}`}
-                fill={index === 2 ? 'hsl(var(--primary))' : 'hsl(var(--muted-foreground) / 0.3)'}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-      <div className="flex items-center justify-between text-xs text-muted-foreground px-2">
-        <span>* Multimodal CLIP achieved highest validation F1 (88.05%)</span>
-        <span className="font-semibold text-success">+11.85% over text-only</span>
-      </div>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
